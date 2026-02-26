@@ -20,14 +20,18 @@ print("Caricate {} molecole".format(len(mols)))
 fingerprints = GetFingerprintFromSDMol(mols)
 
 # Otteniamo la matrice di distanze
-distance_matrix = GetDistanceMatrixFromFingerprints(fingerprints)
+compressed_distance_matrix = GetDistanceMatrixFromFingerprints(fingerprints)
 
-# Otteniamo i cluster con Butina
-clusters = GetClustersFromDistanceMatrix(distance_matrix, len(fingerprints), 0.9)
+expended_distance_matrix = ExpandDistanceMatrix(
+    compressed_distance_matrix, len(fingerprints)
+)
+
+clusters = GetKMeansClustersFromDistanceMatrix(expended_distance_matrix, 10)
 
 print("Creati {} clusters".format(len(clusters)))
 for cluster in clusters:
     print(cluster)
 
-
-mcs_filtered = rdFMCS.FindMCS(mols)
+# otteniamo gli MCS di ogni cluster
+cluster_mcss = GetClustersMCS(clusters, mols)
+DrawClustersMCS(cluster_mcss)
