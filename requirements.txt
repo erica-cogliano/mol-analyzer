@@ -1,3 +1,6 @@
+loguru
+pandas
+pubchempy
 rdkit
 scikit-learn
-loguru
+tqdm

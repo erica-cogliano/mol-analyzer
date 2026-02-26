@@ -3,9 +3,6 @@
 # struttura possibile con un significato chimico e riconoscibile.
 # utilizziamo murcko scaffold per ottenere scaffold piu ampi e significativi
 
-# trovare l'mcs delle molecole in farmaci-oc.sdf
-# Questo file e' una copia di filtered_sdfs.sdf proveniente dal progetto in R
-# manualmente modificato per rimuovere molecole vuote.
 
 from loguru import logger
 from helper import *
@@ -15,9 +12,17 @@ InitLogger()
 # Idea:
 # SDF -> Fingerprint -> Matrice di distanze -> Cluster -> MCS per cluster -> Draw
 
-# carica il file farmaci-oc in mols
-mols = SDMolSupplier("data/farmaci-oc.sdf")
+# trovare l'mcs delle molecole in compounds.sdf
+# Questo file e' una collezione di molecole che sono state testate contro il k ovarico,
+# e che hanno mostrato una certa efficacia. L'obiettivo e' trovare la struttura comune a queste molecole,
+# che potrebbe essere la chiave per capire come funzionano e per progettare nuovi farmaci.
+# Se il file non esiste, viene creato scaricando le molecole dal database PubChem usando il nome dei farmaci
+# nel file "data/ttd_drug_disease_ovarian_by_drug.csv"
+mols = LoadMolecules()
 logger.info("Caricate {} molecole".format(len(mols)))
+DrawMols(mols)
+
+PrintBiggestMol(mols)
 
 # Filtra le molecole per rimuovere quelle che non sono state caricate correttamente
 mols = [m for m in mols if m is not None]
@@ -48,7 +53,7 @@ scaffolds = GetScaffoldsFromSDMol(mols)
 
 # Se invece vogliamo concentrarci solo sulla topologia dello scheletro, ignorando
 # anche i tipi di atomi e di legami, possiamo usare MakeScaffoldGeneric
-# generic_scaffolds= MakeScaffoldsGeneric(scaffolds)
+generic_scaffolds = MakeScaffoldsGeneric(scaffolds)
 
 # otteniamo gli MCS di ogni cluster
 cluster_mcss = GetClustersMCS(clusters, mols)
