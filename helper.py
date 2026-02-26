@@ -1,3 +1,7 @@
+import sys
+import os
+from loguru import logger
+
 from rdkit.Chem import (
     rdFMCS,
     rdFingerprintGenerator,
@@ -10,15 +14,27 @@ from rdkit.ML.Cluster import Butina
 
 from sklearn.manifold import MDS
 from sklearn.cluster import KMeans
+from rdkit.Chem.Scaffolds import MurckoScaffold
+
+
+def InitLogger():
+    # Prendi il livello dalla variabile d'ambiente,
+    # ma usa "INFO" come paracadute se non è impostata
+    current_level = os.getenv("LOGURU_LEVEL", "INFO")
+    logger.remove()  # Rimuove il logger predefinito
+    logger.add(
+        sys.stderr, level=current_level
+    )  # Aggiunge un nuovo logger con il livello specificato
 
 
 # Definiamo una funzione che ci trasforma le molecole di un SDF in un vettore di fingerprint
 # @input: SDMol
 # @output: Vettore di fingerprint
-def GetFingerprintFromSDMol(mols):
+def GetFingerprintFromSDMol(mols: SDMolSupplier):
     gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
     fps = []
     for mol in mols:
+        logger.debug("Generando fingerprint per molecola")
         fp = gen.GetFingerprint(mol)
         fps.append(fp)
     return fps
@@ -33,6 +49,7 @@ def GetSimilarityMatrixFromFingerprints(fingerprints):
 
     for i in range(1, n_fps):
         # Per ogni fingerprint, calcolo la sua similarita' con tutte le altre fingerprint
+        logger.debug("Calcolando similarita' per fingerprint {}".format(i))
         current_fp = fingerprints[i]
         similarita_con_altre = DataStructs.BulkTanimotoSimilarity(
             current_fp, fingerprints[:i]
@@ -103,9 +120,11 @@ def ExpandDistanceMatrix(compressed_distance_matrix, n):
 def GetKMeansClustersFromDistanceMatrix(distance_matrix, cluster_count):
     clusters = []
 
+    logger.debug("Eseguendo MDS per ridurre la matrice di distanze a 2 dimensioni")
     mds = MDS(dissimilarity="precomputed")
     fprints_2d = mds.fit_transform(distance_matrix)
 
+    logger.debug("Eseguendo KMeans per generare {} cluster".format(cluster_count))
     km = KMeans(cluster_count)
     # KMeans fit predict restituisce un vettore di cluster a cui ogni molecola appartiene,
     # ad esempio [0, 0, 1, 1, 2] significa che le prime due molecole appartengono al cluster 0,
@@ -142,6 +161,9 @@ def GetClustersMCS(clusters, mols):
         # trasforma cluster (che contiene indici delle molecole) in un vettore di molecole vere e proprie
         mols_in_cluster = [mols[idx] for idx in cluster]
         # trova la MCS per questo specifico cluster
+        logger.debug(
+            "Calcolando MCS per cluster {} con {} molecole".format(i, len(cluster))
+        )
         mcs_res = rdFMCS.FindMCS(mols_in_cluster)
         # converti il risultato MCS in una molecola visualizzabile
         mcs_mol = MolFromSmarts(mcs_res.smartsString)
@@ -165,3 +187,17 @@ def DrawClustersMCS(clusters_mcs):
         cluster_size = cluster_mcs["size"]
         img = Draw.MolToImage(mcs, legend=f"MCS Cluster {id} (size {cluster_size})")
         img.show()
+
+
+# Funzione che ottiene i murcko scaffold di ogni molecola
+# input: mols - contenitore di molecole di cui vogliamo ottenere i murcko scaffold
+# output: lista di murcko scaffold (sempre formato Mol)
+def GetScaffoldsFromSDMol(mols):
+    return [MurckoScaffold.GetScaffoldForMol(m) for m in mols]
+
+
+# Funzione che rende i murcko scaffold generici, ignorando anche i tipi di atomi e di legami
+# input: scaffolds - lista di murcko scaffold (sempre formato Mol)
+# output: lista di murcko scaffold generici (sempre formato Mol)
+def MakeScaffoldsGeneric(scaffolds):
+    return [MurckoScaffold.MakeScaffoldGeneric(s) for s in scaffolds]
