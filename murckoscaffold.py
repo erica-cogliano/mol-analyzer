@@ -48,7 +48,6 @@ for i, cluster in enumerate(clusters):
 # piccolo o "sporcato" dalle catene laterali.
 # Usare Bemis-Murcko prima dell'MCS permette di trovare il nucleo comune degli scheletri,
 # ignorando le variazioni dei sostituenti.
-
 scaffolds = GetScaffoldsFromSDMol(mols)
 
 # Se invece vogliamo concentrarci solo sulla topologia dello scheletro, ignorando

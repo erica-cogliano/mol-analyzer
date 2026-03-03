@@ -68,7 +68,7 @@ def LoadMolecules(file_path="data/compounds.sdf") -> SDMolSupplier:
 def FindMolsForNames(names):
     mols = []
     for name in tqdm(names, "Cercando molecole per nomi"):
-        mol = FindMolByName(name)
+        mol = FindMolByNameWithSynonyms(name)
         if mol is not None:
             mols.append(mol)
     logger.info(f"Trovate {len(mols)} molecole per {len(names)} nomi")
@@ -137,6 +137,47 @@ def FindCidsBySids(sids, name):
     cids = list(set(cids))
 
 
+def FindMolByNameWithSynonyms(name: str) -> Mol:
+    """
+    Questa funzione cerca una molecola su PubChem usando i sinonimi
+    e restituisce il primo Mol trovato.
+    Se la ricerca fallisce o non viene trovato nulla, restituisce None.
+    """
+    logger.debug(f"Cercando la molecola '{name}' su PubChem come sinonimo")
+    synonyms = []
+    try:
+        synonyms = pcp.get_synonyms(name, namespace="name", domain="compound")
+    except Exception as e:
+        logger.error(f"Connessione fallita per '{name}' come sinonimo: {e}")
+    if synonyms is None or len(synonyms) == 0:
+        try:
+            synonyms = pcp.get_synonyms(name, namespace="name", domain="substance")
+        except Exception as e:
+            logger.error(
+                f"Connessione fallita per '{name}' come sinonimo di sostanza: {e}"
+            )
+    if synonyms is None or len(synonyms) == 0:
+        logger.warning(f"Nessun sinonimo trovato per '{name}'")
+
+    # Synonyms e' una lista di dizionari, dove ogni dizionario ha la forma { "CID": 12345, "Synonym": ["...", "..."] }
+    # Appiattiamo la lista di sinonimi in un'unica lista di stringhe
+    flat_synonyms = []
+    for entry in synonyms:
+        if "Synonym" in entry:
+            flat_synonyms.extend(entry["Synonym"])
+
+    # Prova a cercare la molecola usando i sinonimi trovati
+    for synonym in flat_synonyms:
+        mol = FindMolByName(synonym)
+        # Se troviamo una molecola valida usando un sinonimo, restituiamo quella molecola
+        if mol is not None:
+            SetMolName(mol, name)
+            return mol
+
+    logger.warning(f"Nessuna molecola trovata per '{name}' usando sinonimi")
+    return None
+
+
 def GetBestMolFromCids(cids, name: str) -> Mol:
     """
     Questa funzione prende una lista di compound ID e restituisce la molecola con il maggior numero di atomi.
@@ -164,6 +205,9 @@ def GetBestMolFromCids(cids, name: str) -> Mol:
 
     # Assicuriamoci di associare name al risultato
     if best_mol is not None:
+        logger.success(
+            f"Trovata molecola per '{name}' con {best_mol.GetNumAtoms()} atomi"
+        )
         best_mol.SetProp("_Name", name)
     return best_mol
 
@@ -172,12 +216,14 @@ def GetBestMolFromSupplier(supplier: ForwardSDMolSupplier) -> Mol:
     """
     Questa funzione prende un ForwardSDMolSupplier e restituisce la molecola con il maggior numero di atomi.
     """
+    ATOM_COUNT_LIMIT = 1000  # Imposta un limite massimo di atomi per evitare di processare molecole troppo grandi
+
     best_mol = None
     max_atoms = 0
     for mol in supplier:
         if mol is not None:
             num_atoms = mol.GetNumAtoms()
-            if num_atoms > max_atoms:
+            if num_atoms > max_atoms and num_atoms <= ATOM_COUNT_LIMIT:
                 max_atoms = num_atoms
                 best_mol = mol
     return best_mol
@@ -185,6 +231,10 @@ def GetBestMolFromSupplier(supplier: ForwardSDMolSupplier) -> Mol:
 
 def GetMolName(mol):
     return mol.GetProp("_Name") if mol.HasProp("_Name") else "Unknown"
+
+
+def SetMolName(mol, name):
+    mol.SetProp("_Name", name)
 
 
 def SaveMolsToSDF(mols, file_path):
