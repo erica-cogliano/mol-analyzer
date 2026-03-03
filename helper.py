@@ -2,7 +2,10 @@ import io
 import os
 import pubchempy as pcp
 import pandas as pd
+import numpy as np
+from sammon.sammon import sammon
 from tqdm import tqdm
+
 
 from loguru import logger
 
@@ -348,17 +351,19 @@ def ExpandDistanceMatrix(compressed_distance_matrix, n):
     return expanded_matrix
 
 
-# Definiamo una funzione che genera i cluster con KMeans a partire da una matrice delle distanze
+# Definiamo una funzione che genera i cluster con sammon+KMeans a partire da una matrice delle distanze
 # input:
-#  - distance_matrix: matrice delle distanze in formato adatto a MDS e KMeans
+#  - distance_matrix: matrice delle distanze in formato adatto a sammon+KMeans
 #  - cluster_count: numero di cluster da generare
 # output: clusters
 def GetKMeansClustersFromDistanceMatrix(distance_matrix, cluster_count):
     clusters = []
 
-    logger.debug("Eseguendo MDS per ridurre la matrice di distanze a 2 dimensioni")
-    mds = MDS(dissimilarity="precomputed")
-    fprints_2d = mds.fit_transform(distance_matrix)
+    logger.debug("Eseguendo Sammon mapping per ridurre la matrice di distanze a 2 dimensioni")
+    # Sammon si aspetta un array numpy, quindi convertiamo la matrice di distanze
+    np_distance_matrix = np.array(distance_matrix)
+    sammon_result = sammon(np_distance_matrix)
+    fprints_2d = sammon_result[0]
 
     logger.debug("Eseguendo KMeans per generare {} cluster".format(cluster_count))
     km = KMeans(cluster_count)

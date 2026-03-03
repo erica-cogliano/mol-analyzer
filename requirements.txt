@@ -2,5 +2,6 @@ loguru
 pandas
 pubchempy
 rdkit
+sammon-mapping
 scikit-learn
 tqdm
