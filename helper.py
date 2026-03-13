@@ -219,7 +219,7 @@ def GetBestMolFromSupplier(supplier: ForwardSDMolSupplier) -> Mol:
     """
     Questa funzione prende un ForwardSDMolSupplier e restituisce la molecola con il maggior numero di atomi.
     """
-    ATOM_COUNT_LIMIT = 1000  # Imposta un limite massimo di atomi per evitare di processare molecole troppo grandi
+    ATOM_COUNT_LIMIT = 100  # Imposta un limite massimo di atomi per evitare di processare molecole troppo grandi
 
     best_mol = None
     max_atoms = 0
@@ -425,6 +425,11 @@ def GetClustersMCS(clusters, mols):
 # Funzione che disegna gli MCS di ogni cluster
 # input: clusters_mcs - risultato della funzione GetClustersMCS
 def DrawClustersMCS(clusters_mcs):
+    """
+    Funzione che disegna gli MCS di ogni cluster e li salva in out/mcs come file PNG.
+    Il nome del file e' cluster_{id}_mcs.png, dove {id} e' l'id del cluster.
+    input: clusters_mcs - risultato della funzione GetClustersMCS
+    """
     for cluster_mcs in clusters_mcs:
         mcs = cluster_mcs["mcs_mol"]
         id = cluster_mcs["cluster_id"]
