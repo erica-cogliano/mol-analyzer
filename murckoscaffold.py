@@ -30,7 +30,6 @@ logger.info("Dopo il filtraggio, rimangono {} molecole".format(len(mols)))
 
 # Otteniamo le fingerprint per ogni molecola
 fingerprints = GetFingerprintFromSDMol(mols)
-
 # Otteniamo la matrice di distanze
 compressed_distance_matrix = GetDistanceMatrixFromFingerprints(fingerprints)
 
@@ -38,7 +37,7 @@ expended_distance_matrix = ExpandDistanceMatrix(
     compressed_distance_matrix, len(fingerprints)
 )
 
-clusters = GetKMeansClustersFromDistanceMatrix(expended_distance_matrix, 16)
+clusters = GetKMeansClustersFromDistanceMatrix(expended_distance_matrix, 18)
 
 for i, cluster in enumerate(clusters):
     logger.info("Cluster {}: {}".format(i, cluster))
@@ -55,5 +54,5 @@ scaffolds = GetScaffoldsFromSDMol(mols)
 generic_scaffolds = MakeScaffoldsGeneric(scaffolds)
 
 # otteniamo gli MCS di ogni cluster
-cluster_mcss = GetClustersMCS(clusters, mols)
+cluster_mcss = GetClustersMCS(clusters, scaffolds)
 DrawClustersMCS(cluster_mcss)
