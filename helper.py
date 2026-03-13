@@ -22,7 +22,6 @@ from rdkit.Chem import (
 )
 from rdkit.ML.Cluster import Butina
 
-from sklearn.manifold import MDS
 from sklearn.cluster import KMeans
 from rdkit.Chem.Scaffolds import MurckoScaffold
 
@@ -386,13 +385,53 @@ def GetKMeansClustersFromDistanceMatrix(distance_matrix, cluster_count):
     return clusters_list
 
 
-# definiamo una funzione che genera MCSs a partire dai clusters
-# input:
-# -clusters: un vettore di tuple di indici di molecole
-# -mols: contenitore di molecole di cui gli indici fanno riferimento
-# output:
-# -MCSs
-def GetClustersMCS(clusters, mols):
+class ClusterMCS:
+    """Classe che rappresenta il risultato dell'MCS di un cluster, con informazioni utili per l'analisi e la visualizzazione"""
+
+    @property
+    def cluster_id(self):
+        """cluster_id e' l'id del cluster a cui si riferisce questo MCS"""
+        return self._cluster_id
+
+    @property
+    def size(self):
+        """size e' il numero di molecole che appartengono al cluster a cui si riferisce questo MCS"""
+        return self._size
+
+    @property
+    def mcs_smarts(self):
+        """mcs_smarts e' la rappresentazione SMARTS della sottostruttura comune, che puo' essere usata per cercare questa sottostruttura in altre molecole"""
+        return self._mcs_smarts
+
+    @property
+    def mcs_mol(self):
+        """mcs_mol e' la rappresentazione Mol della sottostruttura comune, che puo' essere usata per disegnare la sottostruttura comune"""
+        return self._mcs_mol
+
+    @property
+    def mols_in_cluster(self):
+        """mols_in_cluster e' la lista di molecole che appartengono al cluster a cui si riferisce questo MCS"""
+        return self._mols_in_cluster
+
+    def __init__(self, cluster_id, size, mcs_smarts, mcs_mol, mols_in_cluster):
+        self._cluster_id = cluster_id
+        self._size = size
+        self._mcs_smarts = mcs_smarts
+        self._mcs_mol = mcs_mol
+        self._mols_in_cluster = mols_in_cluster
+
+
+def GetClustersMCS(clusters, mols) -> list[ClusterMCS]:
+    """
+    Funzione che genera MCSs a partire dai clusters
+
+    input:
+     - clusters: un vettore di tuple di indici di molecole
+     - mols: contenitore di molecole di cui gli indici fanno riferimento
+
+    output:
+     - Lista di ClusterMCS
+    """
     cluster_results = []
     for i, cluster in tqdm(
         enumerate(clusters), total=len(clusters), desc="Calcolando MCS per ogni cluster"
@@ -411,31 +450,29 @@ def GetClustersMCS(clusters, mols):
         # converti il risultato MCS in una molecola visualizzabile
         mcs_mol = MolFromSmarts(mcs_res.smartsString)
         cluster_results.append(
-            {
-                "cluster_id": i,
-                "size": len(cluster),
-                "mcs_smarts": mcs_res.smartsString,
-                "mcs_mol": mcs_mol,
-                "mols_in_cluster": mols_in_cluster,
-            }
+            ClusterMCS(
+                cluster_id=i,
+                size=len(cluster),
+                mcs_smarts=mcs_res.smartsString,
+                mcs_mol=mcs_mol,
+                mols_in_cluster=mols_in_cluster
+            )
         )
     return cluster_results
 
 
-# Funzione che disegna gli MCS di ogni cluster
-# input: clusters_mcs - risultato della funzione GetClustersMCS
-def DrawClustersMCS(clusters_mcs):
+def DrawClustersMCS(clusters_mcs: list[ClusterMCS]):
     """
     Funzione che disegna gli MCS di ogni cluster e li salva in out/mcs come file PNG.
     Il nome del file e' cluster_{id}_mcs.png, dove {id} e' l'id del cluster.
     input: clusters_mcs - risultato della funzione GetClustersMCS
     """
     for cluster_mcs in clusters_mcs:
-        mcs = cluster_mcs["mcs_mol"]
-        id = cluster_mcs["cluster_id"]
-        cluster_size = cluster_mcs["size"]
+        mcs = cluster_mcs.mcs_mol
+        id = cluster_mcs.cluster_id
+        cluster_size = cluster_mcs.size
         legend = f"MCS Cluster {id} (size {cluster_size})"
-        for mol in cluster_mcs["mols_in_cluster"]:
+        for mol in cluster_mcs.mols_in_cluster:
             legend += f"\n- {GetMolName(mol)}"
 
         DrawMol(mcs, out_dir="out/mcs", name_prefix=f"cluster_{id}_mcs", legend=legend)

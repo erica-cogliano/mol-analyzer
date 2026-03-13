@@ -56,3 +56,8 @@ generic_scaffolds = MakeScaffoldsGeneric(scaffolds)
 # otteniamo gli MCS di ogni cluster
 cluster_mcss = GetClustersMCS(clusters, scaffolds)
 DrawClustersMCS(cluster_mcss)
+
+for mcs in cluster_mcss:
+    logger.info(
+        f"Cluster {mcs.cluster_id} (size {mcs.size}): MCS SMARTS: {mcs.mcs_smarts}"
+    )
