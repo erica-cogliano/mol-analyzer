@@ -60,32 +60,5 @@ for interesting_cluster_mcs in kovarian_interseting_clusters:
         #  - prendi da quella riga il valore della colonna disease_name indications
 
         logger.info(f"- {mol_name} -> {mol_indication}")
-
     
-    # Analizziamo la similarita' di un MCS di un cluster con le altre molecole
-    sims: list[float] = GetSimilarityWithMols(interesting_cluster_mcs.mcs_mol, other_mols)
-    
-    # Salva la similarita' appena calcolata in un file csv
-    cluster_id = interesting_cluster_mcs.cluster_id
-    csv_file_path = f"out/tanimoto_similarities_cluster_{cluster_id}.csv"
-    with open(csv_file_path, "w") as csv_file:
-        csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(
-            [
-                "drug_name",
-                "indication",
-                f"cluster_{cluster_id}_similarity"
-            ]
-        )
-
-        for i, other_mol in enumerate(other_mols):
-            mol_name = GetMolName(other_mol)
-            mol_indication = GetMolProperty(other_mol, "TTD_INDICATION")
-
-            csv_writer.writerow(
-                [
-                    mol_name,
-                    mol_indication,
-                    sims[i]
-                ]
-            )
+    ProcessSimilarityWithMols(interesting_cluster_mcs, other_mols, "approved_mols")

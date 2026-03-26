@@ -71,7 +71,7 @@ def main():
         for mol in mols_with_mcs:
             logger.info(f"- {GetMolName(mol)}")
 
-        mcs_search.GetSimilarityWithMols(cluster_mcs.mcs_mol, kovarian_mols)
+        mcs_search.ProcessSimilarityWithMols(cluster_mcs, kovarian_mols, "kovarian_mols")
 
 
 
