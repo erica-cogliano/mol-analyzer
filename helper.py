@@ -19,6 +19,7 @@ from rdkit.Chem import (
     SDMolSupplier,
     DataStructs,
     MolFromSmarts,
+    FastFindRings
 )
 from rdkit.ML.Cluster import Butina
 
@@ -36,21 +37,20 @@ def InitLogger():
     )  # Aggiunge un nuovo logger con il livello specificato
 
 
-def LoadMolecules(file_path="data/compounds.sdf") -> SDMolSupplier:
+def LoadMolecules(file_path, fallback_path, include_substances=True) -> SDMolSupplier:
     """
-    Questa funzione carica le molecole da un file SDF. Se il file non esiste,
-    scarica i dati da PubChem usando i nomi dei farmaci e salva il file SDF per usi futuri.
+    Questa funzione carica le molecole da un file SDF in `file_path`. Se il file non esiste,
+    scarica i dati da PubChem usando i nomi dei farmaci trovati in file csv in `fallback_path`
+    e salva le MOL nel file SDF in `file_path` per usi futuri.
     """
     compounds_sdf_file_name = file_path
     if not os.path.exists(compounds_sdf_file_name):
-        # Carica un file csv
-        ttd_file_name = "data/ttd_drug_disease_ovarian_by_drug.csv"
-        df = pd.read_csv(ttd_file_name)
+        df = pd.read_csv(fallback_path)
         # Prendi solo i nomi delle molecole nella colonna "drug_name"
         molecule_names = df["drug_name"].tolist()
         logger.info(
             "Caricati {} nomi di molecole dal file {}".format(
-                len(molecule_names), ttd_file_name
+                len(molecule_names), fallback_path
             )
         )
 
@@ -59,7 +59,7 @@ def LoadMolecules(file_path="data/compounds.sdf") -> SDMolSupplier:
                 compounds_sdf_file_name
             )
         )
-        mols = FindMolsForNames(molecule_names)
+        mols = FindMolsForNames(molecule_names, include_substances=include_substances)
         SaveMolsToSDF(mols, compounds_sdf_file_name)
     else:
         mols = SDMolSupplier(compounds_sdf_file_name)
@@ -67,10 +67,15 @@ def LoadMolecules(file_path="data/compounds.sdf") -> SDMolSupplier:
     return mols
 
 
-def FindMolsForNames(names):
+def GetListFromSDMolSupplier(supplier: SDMolSupplier) -> list[Mol]:
+    """Transforma un SDMolSupplier in una lista di Mol, filtrando eventuali None che indicano molecole non caricate correttamente"""
+    return [m for m in supplier if m is not None]
+
+
+def FindMolsForNames(names, include_substances=True) -> list[Mol]:
     mols = []
     for name in tqdm(names, "Cercando molecole per nomi"):
-        mol = FindMolByNameWithSynonyms(name)
+        mol = FindMolByNameWithSynonyms(name, include_substances)
         if mol is not None:
             mols.append(mol)
     logger.info(f"Trovate {len(mols)} molecole per {len(names)} nomi")
@@ -139,7 +144,7 @@ def FindCidsBySids(sids, name):
     cids = list(set(cids))
 
 
-def FindMolByNameWithSynonyms(name: str) -> Mol:
+def FindMolByNameWithSynonyms(name: str, include_substances=True) -> Mol:
     """
     Questa funzione cerca una molecola su PubChem usando i sinonimi
     e restituisce il primo Mol trovato.
@@ -152,12 +157,13 @@ def FindMolByNameWithSynonyms(name: str) -> Mol:
     except Exception as e:
         logger.error(f"Connessione fallita per '{name}' come sinonimo: {e}")
     if synonyms is None or len(synonyms) == 0:
-        try:
-            synonyms = pcp.get_synonyms(name, namespace="name", domain="substance")
-        except Exception as e:
-            logger.error(
-                f"Connessione fallita per '{name}' come sinonimo di sostanza: {e}"
-            )
+        if include_substances:
+            try:
+                synonyms = pcp.get_synonyms(name, namespace="name", domain="substance")
+            except Exception as e:
+                logger.error(
+                    f"Connessione fallita per '{name}' come sinonimo di sostanza: {e}"
+                )
     if synonyms is None or len(synonyms) == 0:
         logger.warning(f"Nessun sinonimo trovato per '{name}'")
 
@@ -191,7 +197,11 @@ def GetBestMolFromCids(cids, name: str) -> Mol:
         return None
 
     # Otteniamo il testo SDF per i CID dati
-    sdf_text = pcp.get_sdf(cids)
+    try:
+        sdf_text = pcp.get_sdf(cids)
+    except Exception as e:
+        logger.error(f"Errore durante il recupero dello SDF per '{name}': {e}")
+        return None
 
     if sdf_text is None or sdf_text.strip() == "":
         logger.warning(f"SDF vuoto o non valido per '{name}'")
@@ -239,6 +249,17 @@ def SetMolName(mol, name):
     mol.SetProp("_Name", name)
 
 
+def GetMolProperty(mol: Mol, property_name: str):
+    if mol.HasProp(property_name):
+        return mol.GetProp(property_name)
+    else:
+        return None
+
+
+def SetMolProperty(mol: Mol, property_name: str, value):
+    mol.SetProp(property_name, value)
+
+
 def SaveMolsToSDF(mols, file_path):
     writer = SDWriter(file_path)
     for mol in mols:
@@ -272,7 +293,26 @@ def GetFingerprintFromSDMol(mols: SDMolSupplier):
     gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
     fps = []
     for mol in tqdm(mols, "Generando fingerprint"):
-        logger.debug("Generando fingerprint per molecola: {}".format(GetMolName(mol)))
+        fp = gen.GetFingerprint(mol)
+        fps.append(fp)
+    return fps
+
+
+def GetFingerprint(mol: Mol):
+    """
+    Restituisce la fingerprint della molecola passata come argomento in `mol`
+    """
+    gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+    return gen.GetFingerprint(mol)
+
+
+def GetFingerprintsFromMols(mols: list[Mol]) -> list:
+    """
+    Restituisce la lista delle fingerprint associate alle molecole della lista `mols`
+    """
+    gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+    fps = []
+    for mol in tqdm(mols, "Generando fingerprint"):
         fp = gen.GetFingerprint(mol)
         fps.append(fp)
     return fps
@@ -365,7 +405,7 @@ def GetKMeansClustersFromDistanceMatrix(distance_matrix, cluster_count):
     fprints_2d = sammon_result[0]
 
     logger.debug("Eseguendo KMeans per generare {} cluster".format(cluster_count))
-    km = KMeans(cluster_count)
+    km = KMeans(cluster_count, random_state=42)
     # KMeans fit predict restituisce un vettore di cluster a cui ogni molecola appartiene,
     # ad esempio [0, 0, 1, 1, 2] significa che le prime due molecole appartengono al cluster 0,
     # le successive due al cluster 1 e l'ultima al cluster 2
@@ -389,27 +429,27 @@ class ClusterMCS:
     """Classe che rappresenta il risultato dell'MCS di un cluster, con informazioni utili per l'analisi e la visualizzazione"""
 
     @property
-    def cluster_id(self):
+    def cluster_id(self) -> int:
         """cluster_id e' l'id del cluster a cui si riferisce questo MCS"""
         return self._cluster_id
 
     @property
-    def size(self):
+    def size(self) -> int:
         """size e' il numero di molecole che appartengono al cluster a cui si riferisce questo MCS"""
         return self._size
 
     @property
-    def mcs_smarts(self):
+    def mcs_smarts(self) -> str:
         """mcs_smarts e' la rappresentazione SMARTS della sottostruttura comune, che puo' essere usata per cercare questa sottostruttura in altre molecole"""
         return self._mcs_smarts
 
     @property
-    def mcs_mol(self):
-        """mcs_mol e' la rappresentazione Mol della sottostruttura comune, che puo' essere usata per disegnare la sottostruttura comune"""
+    def mcs_mol(self) -> Mol:
+        """mcs_mol e' la rappresentazione Mol della sottostruttura comune"""
         return self._mcs_mol
 
     @property
-    def mols_in_cluster(self):
+    def mols_in_cluster(self) -> list[Mol]:
         """mols_in_cluster e' la lista di molecole che appartengono al cluster a cui si riferisce questo MCS"""
         return self._mols_in_cluster
 
@@ -438,7 +478,7 @@ def GetClustersMCS(clusters, mols) -> list[ClusterMCS]:
     ):
         # un cluster e' una tupla di indici (es.(1,5,10))
         if len(cluster) < 2:
-            # salta i clustert con una sola molecola
+            # salta i cluster con una sola molecola
             continue
         # trasforma cluster (che contiene indici delle molecole) in un vettore di molecole vere e proprie
         mols_in_cluster = [mols[idx] for idx in cluster]
@@ -447,8 +487,15 @@ def GetClustersMCS(clusters, mols) -> list[ClusterMCS]:
             "Calcolando MCS per cluster {} con {} molecole".format(i, len(cluster))
         )
         mcs_res = rdFMCS.FindMCS(mols_in_cluster)
+        
         # converti il risultato MCS in una molecola visualizzabile
         mcs_mol = MolFromSmarts(mcs_res.smartsString)
+        
+        # La mol ottenuto da MolFromSmarts non ha determinati valori che sono richiesti per il calcolo delle fingerprints
+        # quindi, invochiamo `UpdatePropertyCache` e `FastFindRings` per forzare l'aggiornamento di questi valori.
+        mcs_mol.UpdatePropertyCache(strict=False)
+        FastFindRings(mcs_mol)
+        
         cluster_results.append(
             ClusterMCS(
                 cluster_id=i,
@@ -467,6 +514,16 @@ def DrawClustersMCS(clusters_mcs: list[ClusterMCS]):
     Il nome del file e' cluster_{id}_mcs.png, dove {id} e' l'id del cluster.
     input: clusters_mcs - risultato della funzione GetClustersMCS
     """
+    out_dir = "out/mcs"
+    # Cancella la cartella out/mcs se esiste per eliminare i vecchi risultati
+    if os.path.exists(out_dir):
+        for file in os.listdir(out_dir):
+            os.remove(os.path.join(out_dir, file))
+
+    # Crea la cartella out/mcs se non esiste
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
     for cluster_mcs in clusters_mcs:
         mcs = cluster_mcs.mcs_mol
         id = cluster_mcs.cluster_id
@@ -475,12 +532,15 @@ def DrawClustersMCS(clusters_mcs: list[ClusterMCS]):
         for mol in cluster_mcs.mols_in_cluster:
             legend += f"\n- {GetMolName(mol)}"
 
-        DrawMol(mcs, out_dir="out/mcs", name_prefix=f"cluster_{id}_mcs", legend=legend)
+        DrawMol(mcs, out_dir, name_prefix=f"cluster_{id}_mcs", legend=legend)
 
 
-def DrawMols(mols):
-    for mol in mols:
-        DrawMol(mol)
+def DrawMols(mols, out_dir: str = "out/mols"):
+    """
+    Disegna le molecole e salva il risultato in file PNG nella cartella `out_dir`
+    """
+    for mol in tqdm(mols, desc="Disegnando le molecole"):
+        DrawMol(mol, out_dir=out_dir)
 
 
 def DrawMol(
@@ -493,8 +553,11 @@ def DrawMol(
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
+    # Name potrebbe avere il carattere di separatore di cartella al suo interno `/`
+    # Quindi lo dobbiamo safinicare se vogliamo usarlo come nome di file
+    safe_name = name.replace("/", "_")
     # Salva l'immagine in out/mol_{name}.png
-    img.save(f"{out_dir}/{name_prefix}_{name}.png")
+    img.save(f"{out_dir}/{name_prefix}_{safe_name}.png")
 
 
 # Funzione che ottiene i murcko scaffold di ogni molecola
@@ -509,3 +572,48 @@ def GetScaffoldsFromSDMol(mols):
 # output: lista di murcko scaffold generici (sempre formato Mol)
 def MakeScaffoldsGeneric(scaffolds):
     return [MurckoScaffold.MakeScaffoldGeneric(s) for s in scaffolds]
+
+
+def GetClustersMCSFromMols(mols: list[Mol], use_scaffolds: bool = True) -> list[ClusterMCS]:
+    """Funzione che ottiene i cluster e i relativi MCS a partire da una lista di molecole
+
+    - input: mols - lista di molecole (formato Mol)
+    - output: lista di ClusterMCS, ovvero una lista di oggetti che rappresentano i cluster e i relativi MCS, con informazioni utili per l'analisi e la visualizzazione
+
+    La funzione esegue i seguenti passaggi:
+    1. Ottiene i fingerprint per ogni molecola
+    2. Ottiene la matrice di distanze a partire dai fingerprint
+    3. Utilizza KMeans per ottenere i cluster a partire dalla matrice di distanze
+    4. Per ogni cluster, ottiene l'MCS a partire dalle molecole che appartengono a quel cluster, e salva le informazioni in un oggetto ClusterMCS
+    """
+
+    # Otteniamo le fingerprint per ogni molecola
+    fingerprints = GetFingerprintFromSDMol(mols)
+    # Otteniamo la matrice di distanze
+    compressed_distance_matrix = GetDistanceMatrixFromFingerprints(fingerprints)
+
+    expended_distance_matrix = ExpandDistanceMatrix(
+        compressed_distance_matrix, len(fingerprints)
+    )
+
+    clusters = GetKMeansClustersFromDistanceMatrix(expended_distance_matrix, 24)
+
+    for i, cluster in enumerate(clusters):
+        logger.info("Cluster {}: {}".format(i, cluster))
+
+    if use_scaffolds:
+        # L'MCS trova la più grande sottostruttura comune tra due o più molecole.
+        # Cercare l'MCS su molecole intere potrebbe dare un risultato troppo
+        # piccolo o "sporcato" dalle catene laterali.
+        # Usare Bemis-Murcko prima dell'MCS permette di trovare il nucleo comune degli scheletri,
+        # ignorando le variazioni dei sostituenti.
+        scaffolds = GetScaffoldsFromSDMol(mols)
+
+        # Se invece vogliamo concentrarci solo sulla topologia dello scheletro, ignorando
+        # anche i tipi di atomi e di legami, possiamo usare MakeScaffoldGeneric
+        generic_scaffolds = MakeScaffoldsGeneric(scaffolds)
+
+        # otteniamo gli MCS di ogni cluster
+        return GetClustersMCS(clusters, scaffolds)
+    else:
+        return GetClustersMCS(clusters, mols)

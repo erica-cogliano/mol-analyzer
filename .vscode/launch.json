@@ -5,10 +5,21 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "MurckoScaffold",
+            "name": "kovarian-clusters",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/murckoscaffold.py",
+            "program": "${workspaceFolder}/kovarian_clusters.py",
+            "console": "integratedTerminal",
+            "env": {
+                "LOGURU_LEVEL": "DEBUG",
+                "LOGURU_DIAGNOSE": "YES"
+            }
+        },
+        {
+            "name": "kovarian-clusters-vs-other-mols",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/kovarian_clusters_vs_other_mols.py",
             "console": "integratedTerminal",
             "env": {
                 "LOGURU_LEVEL": "DEBUG",
