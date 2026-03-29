@@ -5,3 +5,4 @@ rdkit
 sammon-mapping
 scikit-learn
 tqdm
+matplotlib
