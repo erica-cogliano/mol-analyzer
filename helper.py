@@ -395,7 +395,7 @@ def ExpandDistanceMatrix(compressed_distance_matrix, n):
 #  - distance_matrix: matrice delle distanze in formato adatto a sammon+KMeans
 #  - cluster_count: numero di cluster da generare
 # output: clusters
-def GetKMeansClustersFromDistanceMatrix(distance_matrix, cluster_count):
+def GetKMeansClustersFromDistanceMatrix(distance_matrix, cluster_count, random_state):
     clusters = []
 
     logger.debug("Eseguendo Sammon mapping per ridurre la matrice di distanze a 2 dimensioni")
@@ -405,7 +405,7 @@ def GetKMeansClustersFromDistanceMatrix(distance_matrix, cluster_count):
     fprints_2d = sammon_result[0]
 
     logger.debug("Eseguendo KMeans per generare {} cluster".format(cluster_count))
-    km = KMeans(cluster_count, random_state=42)
+    km = KMeans(cluster_count, random_state=random_state)
     # KMeans fit predict restituisce un vettore di cluster a cui ogni molecola appartiene,
     # ad esempio [0, 0, 1, 1, 2] significa che le prime due molecole appartengono al cluster 0,
     # le successive due al cluster 1 e l'ultima al cluster 2
@@ -574,7 +574,7 @@ def MakeScaffoldsGeneric(scaffolds):
     return [MurckoScaffold.MakeScaffoldGeneric(s) for s in scaffolds]
 
 
-def GetClustersMCSFromMols(mols: list[Mol], use_scaffolds: bool = True) -> list[ClusterMCS]:
+def GetClustersMCSFromMols(mols: list[Mol], use_scaffolds: bool = True, cluster_count = 20, random_state = 42) -> list[ClusterMCS]:
     """Funzione che ottiene i cluster e i relativi MCS a partire da una lista di molecole
 
     - input: mols - lista di molecole (formato Mol)
@@ -596,7 +596,7 @@ def GetClustersMCSFromMols(mols: list[Mol], use_scaffolds: bool = True) -> list[
         compressed_distance_matrix, len(fingerprints)
     )
 
-    clusters = GetKMeansClustersFromDistanceMatrix(expended_distance_matrix, 24)
+    clusters = GetKMeansClustersFromDistanceMatrix(expended_distance_matrix, cluster_count, random_state=random_state)
 
     for i, cluster in enumerate(clusters):
         logger.info("Cluster {}: {}".format(i, cluster))
