@@ -10,6 +10,7 @@ import mcs_search
 
 CLUSTER_COUNT = 24
 RANDOM_STATE = 10
+INTERESTING_CLUSTER_IDS = [3, 5, 10, 16 , 17]
 
 
 def GetInterestingClusters() -> list[ClusterMCS]:
@@ -33,7 +34,7 @@ def GetInterestingClusters() -> list[ClusterMCS]:
     )
 
     # Seleziona i cluster piu' interessanti
-    return mcs_search.GetInterestingClusterMCS(k_ovarian_cluster_mcss)
+    return mcs_search.GetInterestingClusterMCS(k_ovarian_cluster_mcss, INTERESTING_CLUSTER_IDS)
 
 
 def main():
@@ -68,7 +69,7 @@ def main():
     DrawClustersMCS(k_ovarian_cluster_mcss)
 
     interesting_cluster_mcss = mcs_search.GetInterestingClusterMCS(
-        k_ovarian_cluster_mcss
+        k_ovarian_cluster_mcss, INTERESTING_CLUSTER_IDS
     )
 
     for cluster_mcs in interesting_cluster_mcss:

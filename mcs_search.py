@@ -8,8 +8,6 @@ import csv
 from loguru import logger
 from helper import *
 
-INTERESTING_CLUSTER_IDS = [4, 6, 20]
-
 
 def FindClusterMCSByClusterId(cluster_mcss: list[ClusterMCS], cluster_id: int) -> ClusterMCS:
     """Trova l'MCS del cluster con id `cluster_id` nella lista `cluster_mcss`."""
@@ -19,10 +17,10 @@ def FindClusterMCSByClusterId(cluster_mcss: list[ClusterMCS], cluster_id: int) -
     return None
 
 
-def GetInterestingClusterMCS(cluster_mcss: list[ClusterMCS]) -> list[ClusterMCS]:
+def GetInterestingClusterMCS(cluster_mcss: list[ClusterMCS], interesting_clusters) -> list[ClusterMCS]:
     """Restituisce gli MCS dei cluster di molecole che sono stati identificati come interessanti."""
     interesting_cluster_mcss = []
-    for id in INTERESTING_CLUSTER_IDS:
+    for id in interesting_clusters:
         cluster_mcs = FindClusterMCSByClusterId(cluster_mcss, id)
         if cluster_mcs is not None:
             interesting_cluster_mcss.append(cluster_mcs)
