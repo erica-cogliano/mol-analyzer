@@ -5,6 +5,7 @@
 
 
 from loguru import logger
+from rdkit import Chem
 from helper import *
 import mcs_search
 
@@ -13,10 +14,11 @@ RANDOM_STATE = 10
 INTERESTING_CLUSTER_IDS = [3, 5, 10, 16 , 17]
 
 
-def GetInterestingClusters() -> list[ClusterMCS]:
+def LoadKOvarianMolecules() -> list[Chem.Mol]:
     """
-    Restituisce la lista di ClusterMCS di piccole molecole associate al k ovarico
-    che sono stati identificati come interessanti in base a criteri arbitrari.
+    Carica le molecole dei farmaci del k ovarico da un file SDF, o se il file non esiste,
+    li scarica da PubChem usando i nomi dei farmaci da un file CSV.
+    Restituisce una lista di oggetti Chem.Mol.
     """
     kovarian_mols = LoadMolecules(
         file_path="data/compounds.sdf",
@@ -27,6 +29,17 @@ def GetInterestingClusters() -> list[ClusterMCS]:
     # Filtra le molecole per rimuovere quelle che non sono state caricate correttamente
     kovarian_mols = GetListFromSDMolSupplier(kovarian_mols)
     logger.info("Dopo il filtraggio, rimangono {} molecole".format(len(kovarian_mols)))
+
+    return kovarian_mols
+
+
+
+def GetInterestingClusters() -> list[ClusterMCS]:
+    """
+    Restituisce la lista di ClusterMCS di piccole molecole associate al k ovarico
+    che sono stati identificati come interessanti in base a criteri arbitrari.
+    """
+    kovarian_mols = LoadKOvarianMolecules()
 
     # Ottieni gli MCS dei cluster a partire dalle molecole filtrate
     k_ovarian_cluster_mcss: list[ClusterMCS] = GetClustersMCSFromMols(
@@ -49,18 +62,10 @@ def main():
     # che potrebbe essere la chiave per capire come funzionano e per progettare nuovi farmaci.
     # Se il file non esiste, viene creato scaricando le molecole dal database PubChem usando il nome dei farmaci
     # nel file "data/ttd_drug_disease_ovarian_by_drug.csv"
-    kovarian_mols = LoadMolecules(
-        file_path="data/compounds.sdf",
-        fallback_path="data/ttd_drug_disease_ovarian_by_drug.csv",
-    )
-    logger.info("Caricate {} molecole".format(len(kovarian_mols)))
+    kovarian_mols = LoadKOvarianMolecules()
+
     DrawMols(kovarian_mols)
-
     PrintBiggestMol(kovarian_mols)
-
-    # Filtra le molecole per rimuovere quelle che non sono state caricate correttamente
-    kovarian_mols = GetListFromSDMolSupplier(kovarian_mols)
-    logger.info("Dopo il filtraggio, rimangono {} molecole".format(len(kovarian_mols)))
 
     k_ovarian_cluster_mcss: list[ClusterMCS] = GetClustersMCSFromMols(
         kovarian_mols, cluster_count=CLUSTER_COUNT, random_state=RANDOM_STATE
