@@ -11,7 +11,7 @@ import mcs_search
 
 CLUSTER_COUNT = 24
 RANDOM_STATE = 10
-INTERESTING_CLUSTER_IDS = [3, 5, 10, 16 , 17]
+INTERESTING_CLUSTER_IDS = [1, 4, 5, 21, 22]
 
 
 def LoadKOvarianMolecules() -> list[Chem.Mol]:
@@ -33,7 +33,6 @@ def LoadKOvarianMolecules() -> list[Chem.Mol]:
     return kovarian_mols
 
 
-
 def GetInterestingClusters() -> list[ClusterMCS]:
     """
     Restituisce la lista di ClusterMCS di piccole molecole associate al k ovarico
@@ -47,7 +46,9 @@ def GetInterestingClusters() -> list[ClusterMCS]:
     )
 
     # Seleziona i cluster piu' interessanti
-    return mcs_search.GetInterestingClusterMCS(k_ovarian_cluster_mcss, INTERESTING_CLUSTER_IDS)
+    return mcs_search.GetInterestingClusterMCS(
+        k_ovarian_cluster_mcss, INTERESTING_CLUSTER_IDS
+    )
 
 
 def main():

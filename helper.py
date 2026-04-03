@@ -19,7 +19,7 @@ from rdkit.Chem import (
     SDMolSupplier,
     DataStructs,
     MolFromSmarts,
-    FastFindRings
+    FastFindRings,
 )
 from rdkit.ML.Cluster import Butina
 
@@ -390,15 +390,25 @@ def ExpandDistanceMatrix(compressed_distance_matrix, n):
     return expanded_matrix
 
 
-# Definiamo una funzione che genera i cluster con sammon+KMeans a partire da una matrice delle distanze
-# input:
-#  - distance_matrix: matrice delle distanze in formato adatto a sammon+KMeans
-#  - cluster_count: numero di cluster da generare
-# output: clusters
-def GetKMeansClustersFromDistanceMatrix(distance_matrix, cluster_count, random_state):
-    clusters = []
+def GetKMeansClustersFromDistanceMatrix(
+    mols: list[Mol], distance_matrix, cluster_count, random_state
+) -> list[ClusteredMol]:
+    """
+    Definiamo una funzione che genera i cluster con sammon+KMeans a partire da una matrice delle distanze
 
-    logger.debug("Eseguendo Sammon mapping per ridurre la matrice di distanze a 2 dimensioni")
+    input:
+      - mols: lista di molecole su cui vogliamo generare i cluster
+      - distance_matrix: matrice delle distanze in formato adatto a sammon+KMeans
+      - cluster_count: numero di cluster da generare
+
+    output:
+      - Lista di ClusteredMol, che contiene le molecole clusterizzate con KMeans e le loro coordinate 2D
+    """
+    clustered_mols = []
+
+    logger.debug(
+        "Eseguendo Sammon mapping per ridurre la matrice di distanze a 2 dimensioni"
+    )
     # Sammon si aspetta un array numpy, quindi convertiamo la matrice di distanze
     np_distance_matrix = np.array(distance_matrix)
     sammon_result = sammon(np_distance_matrix)
@@ -411,18 +421,57 @@ def GetKMeansClustersFromDistanceMatrix(distance_matrix, cluster_count, random_s
     # le successive due al cluster 1 e l'ultima al cluster 2
     clusters = km.fit_predict(fprints_2d)
 
-    # Ora vogliamo trasformare questo vettore di cluster in una lista di cluster,
-    # dove ogni cluster e' una tupla di indici di molecole
-    cluster_dict = {}
-    for idx, cluster_id in enumerate(clusters):
-        if cluster_id not in cluster_dict:
-            cluster_dict[cluster_id] = []
-        cluster_dict[cluster_id].append(idx)
+    # Ora abbiamo un vettore di cluster e un vettore di coordinate 2D per ogni molecola,
+    # vogliamo combinarli in un unico contenitore che ci permetta di accedere facilmente a tutte queste informazioni.
+    for i, (mol, cluster_id) in enumerate(zip(mols, clusters)):
+        x, y = fprints_2d[i]
+        clustered_mols.append(
+            ClusteredMol(mol=mol, cluster_id=int(cluster_id), x=x, y=y)
+        )
 
-    # Convertiamo il dizionario in una lista di tuple
-    clusters_list = [tuple(v) for v in cluster_dict.values()]
+    # Verifichiamno che clustered_mols e mols siano compatibili
+    assert len(clustered_mols) == len(
+        mols
+    ), "Il numero di molecole clusterizzate non corrisponde al numero di molecole originali"
+    for i in range(len(mols)):
+        assert (
+            clustered_mols[i].mol == mols[i]
+        ), f"La molecola clusterizzata alla posizione {i} non corrisponde alla molecola originale"
 
-    return clusters_list
+    return clustered_mols
+
+
+class ClusteredMol:
+    """Classe che rappresenta una molecola clusterizzata, con informazioni utili per l'analisi e la visualizzazione"""
+
+    @property
+    def mol(self) -> Mol:
+        """mol e' la molecola originale"""
+        return self._mol
+
+    @property
+    def cluster_id(self) -> int:
+        """cluster_id e' l'id del cluster a cui appartiene questa molecola"""
+        return self._cluster_id
+
+    @property
+    def x(self) -> float:
+        """x e' la coordinata x della molecola nello spazio 2D ottenuto con Sammon mapping"""
+        return self._x
+
+    @property
+    def y(self) -> float:
+        """y e' la coordinata y della molecola nello spazio 2D ottenuto con Sammon mapping"""
+        return self._y
+
+    def __init__(self, mol, cluster_id, x, y):
+        self._mol = mol
+        self._cluster_id = cluster_id
+        self._x = x
+        self._y = y
+
+    def GetName(self):
+        return GetMolName(self._mol)
 
 
 class ClusterMCS:
@@ -432,11 +481,6 @@ class ClusterMCS:
     def cluster_id(self) -> int:
         """cluster_id e' l'id del cluster a cui si riferisce questo MCS"""
         return self._cluster_id
-
-    @property
-    def size(self) -> int:
-        """size e' il numero di molecole che appartengono al cluster a cui si riferisce questo MCS"""
-        return self._size
 
     @property
     def mcs_smarts(self) -> str:
@@ -449,60 +493,87 @@ class ClusterMCS:
         return self._mcs_mol
 
     @property
-    def mols_in_cluster(self) -> list[Mol]:
+    def mols_in_cluster(self) -> list[ClusteredMol]:
         """mols_in_cluster e' la lista di molecole che appartengono al cluster a cui si riferisce questo MCS"""
         return self._mols_in_cluster
 
-    def __init__(self, cluster_id, size, mcs_smarts, mcs_mol, mols_in_cluster):
+    def __init__(self, cluster_id, mcs_smarts, mcs_mol, mols_in_cluster):
         self._cluster_id = cluster_id
-        self._size = size
         self._mcs_smarts = mcs_smarts
         self._mcs_mol = mcs_mol
         self._mols_in_cluster = mols_in_cluster
 
+    def GetSize(self):
+        """Restituisce il numero di molecole che appartengono al cluster a cui si riferisce questo MCS"""
+        return len(self._mols_in_cluster)
 
-def GetClustersMCS(clusters, mols) -> list[ClusterMCS]:
+
+def GetClusterCount(clustered_mols: list[ClusteredMol]) -> int:
+    """Funzione che calcola il numero di cluster presenti in una lista di ClusteredMol"""
+    cluster_ids = set([cm.cluster_id for cm in clustered_mols])
+    return len(cluster_ids)
+
+
+def GetClustersMCS(
+    clustered_mols: list[ClusteredMol], mols: list[Mol]
+) -> list[ClusterMCS]:
     """
     Funzione che genera MCSs a partire dai clusters
 
     input:
-     - clusters: un vettore di tuple di indici di molecole
-     - mols: contenitore di molecole di cui gli indici fanno riferimento
+     - clustered_mols: una lista di ClusteredMol, che contiene le molecole clusterizzate con KMeans e le loro coordinate 2D
+     - mols: contenitore di molecole su cui vogliamo calcolare gli MCS, che puo' essere la lista originale di molecole o
+        la lista dei murcko scaffold generici, a seconda di cosa vogliamo analizzare
 
     output:
      - Lista di ClusterMCS
     """
     cluster_results = []
-    for i, cluster in tqdm(
-        enumerate(clusters), total=len(clusters), desc="Calcolando MCS per ogni cluster"
+    cluster_count = GetClusterCount(clustered_mols)
+    for cluster_id in tqdm(
+        range(cluster_count),
+        total=cluster_count,
+        desc="Calcolando MCS per ogni cluster",
     ):
-        # un cluster e' una tupla di indici (es.(1,5,10))
-        if len(cluster) < 2:
+        # Otteniamo gli indici delle molecole che appartengono al cluster i, filtrando la lista di ClusteredMol per cluster_id
+        mol_indices_in_cluster = []
+        clustered_mols_in_cluster = []
+        for i, clustered_mol in enumerate(clustered_mols):
+            if clustered_mol.cluster_id == cluster_id:
+                mol_indices_in_cluster.append(i)
+                clustered_mols_in_cluster.append(clustered_mol)
+
+        if len(mol_indices_in_cluster) < 2:
             # salta i cluster con una sola molecola
             continue
-        # trasforma cluster (che contiene indici delle molecole) in un vettore di molecole vere e proprie
-        mols_in_cluster = [mols[idx] for idx in cluster]
+
         # trova la MCS per questo specifico cluster
         logger.debug(
-            "Calcolando MCS per cluster {} con {} molecole".format(i, len(cluster))
+            "Calcolando MCS per cluster {} con {} molecole".format(
+                cluster_id, len(mol_indices_in_cluster)
+            )
         )
+
+        # otteniamo le molecole originali usando gli indici ottenuti e la lista di molecole passata come argomento
+        mols_in_cluster = [mols[i] for i in mol_indices_in_cluster]
         mcs_res = rdFMCS.FindMCS(mols_in_cluster)
-        
+
         # converti il risultato MCS in una molecola visualizzabile
         mcs_mol = MolFromSmarts(mcs_res.smartsString)
-        
+
         # La mol ottenuto da MolFromSmarts non ha determinati valori che sono richiesti per il calcolo delle fingerprints
         # quindi, invochiamo `UpdatePropertyCache` e `FastFindRings` per forzare l'aggiornamento di questi valori.
         mcs_mol.UpdatePropertyCache(strict=False)
         FastFindRings(mcs_mol)
-        
+
+        # Nel ClusterMCS, salviamo anche la lista di ClusteredMol che appartengono a quel cluster,
+        # in modo da poter accedere facilmente a tutte le informazioni su quelle molecole quando analizziamo o visualizziamo l'MCS
         cluster_results.append(
             ClusterMCS(
-                cluster_id=i,
-                size=len(cluster),
+                cluster_id=cluster_id,
                 mcs_smarts=mcs_res.smartsString,
                 mcs_mol=mcs_mol,
-                mols_in_cluster=mols_in_cluster
+                mols_in_cluster=clustered_mols_in_cluster,
             )
         )
     return cluster_results
@@ -527,10 +598,10 @@ def DrawClustersMCS(clusters_mcs: list[ClusterMCS]):
     for cluster_mcs in clusters_mcs:
         mcs = cluster_mcs.mcs_mol
         id = cluster_mcs.cluster_id
-        cluster_size = cluster_mcs.size
+        cluster_size = cluster_mcs.GetSize()
         legend = f"MCS Cluster {id} (size {cluster_size})"
-        for mol in cluster_mcs.mols_in_cluster:
-            legend += f"\n- {GetMolName(mol)}"
+        for clustered_mol in cluster_mcs.mols_in_cluster:
+            legend += f"\n- {clustered_mol.GetName()}"
 
         DrawMol(mcs, out_dir, name_prefix=f"cluster_{id}_mcs", legend=legend)
 
@@ -574,7 +645,9 @@ def MakeScaffoldsGeneric(scaffolds):
     return [MurckoScaffold.MakeScaffoldGeneric(s) for s in scaffolds]
 
 
-def GetClustersMCSFromMols(mols: list[Mol], use_scaffolds: bool = True, cluster_count = 20, random_state = 42) -> list[ClusterMCS]:
+def GetClustersMCSFromMols(
+    mols: list[Mol], use_scaffolds: bool = True, cluster_count=20, random_state=42
+) -> list[ClusterMCS]:
     """Funzione che ottiene i cluster e i relativi MCS a partire da una lista di molecole
 
     - input: mols - lista di molecole (formato Mol)
@@ -596,10 +669,14 @@ def GetClustersMCSFromMols(mols: list[Mol], use_scaffolds: bool = True, cluster_
         compressed_distance_matrix, len(fingerprints)
     )
 
-    clusters = GetKMeansClustersFromDistanceMatrix(expended_distance_matrix, cluster_count, random_state=random_state)
+    clustered_mols = GetKMeansClustersFromDistanceMatrix(
+        mols, expended_distance_matrix, cluster_count, random_state=random_state
+    )
 
-    for i, cluster in enumerate(clusters):
-        logger.info("Cluster {}: {}".format(i, cluster))
+    for clustered_mol in clustered_mols:
+        logger.info(
+            "Cluster {}: {}".format(clustered_mol.cluster_id, clustered_mol.GetName())
+        )
 
     if use_scaffolds:
         # L'MCS trova la più grande sottostruttura comune tra due o più molecole.
@@ -614,6 +691,6 @@ def GetClustersMCSFromMols(mols: list[Mol], use_scaffolds: bool = True, cluster_
         generic_scaffolds = MakeScaffoldsGeneric(scaffolds)
 
         # otteniamo gli MCS di ogni cluster
-        return GetClustersMCS(clusters, scaffolds)
+        return GetClustersMCS(clustered_mols, scaffolds)
     else:
-        return GetClustersMCS(clusters, mols)
+        return GetClustersMCS(clustered_mols, mols)
