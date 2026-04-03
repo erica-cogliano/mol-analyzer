@@ -142,6 +142,7 @@ def FindCidsBySids(sids, name):
         return None
     # Deduplica i CID
     cids = list(set(cids))
+    return cids
 
 
 def FindMolByNameWithSynonyms(name: str, include_substances=True) -> Mol:
@@ -579,31 +580,39 @@ def GetClustersMCS(
     return cluster_results
 
 
-def DrawClustersMCS(clusters_mcs: list[ClusterMCS]):
+def DrawClusterMCS(cluster_mcs: ClusterMCS, out_dir: str = "out/mcs"):
+    """
+    Funzione che disegna l'MCS di un cluster e lo salva in out/mcs come file PNG.
+    Il nome del file e' cluster_{id}_mcs.png, dove {id} e' l'id del cluster.
+    input: cluster_mcs - un oggetto ClusterMCS, ovvero il risultato della funzione GetClustersMCS per un singolo cluster
+    """
+    # Se la cartella out/mcs non esiste, creala
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
+    mcs = cluster_mcs.mcs_mol
+    id = cluster_mcs.cluster_id
+    cluster_size = cluster_mcs.GetSize()
+    legend = f"MCS Cluster {id} (size {cluster_size})"
+    for clustered_mol in cluster_mcs.mols_in_cluster:
+        legend += f"\n- {clustered_mol.GetName()}"
+
+    DrawMol(mcs, out_dir, name_prefix=f"cluster_{id}_mcs", legend=legend)
+
+
+def DrawClustersMCS(clusters_mcs: list[ClusterMCS], out_dir: str = "out/mcs"):
     """
     Funzione che disegna gli MCS di ogni cluster e li salva in out/mcs come file PNG.
     Il nome del file e' cluster_{id}_mcs.png, dove {id} e' l'id del cluster.
     input: clusters_mcs - risultato della funzione GetClustersMCS
     """
-    out_dir = "out/mcs"
     # Cancella la cartella out/mcs se esiste per eliminare i vecchi risultati
     if os.path.exists(out_dir):
         for file in os.listdir(out_dir):
             os.remove(os.path.join(out_dir, file))
 
-    # Crea la cartella out/mcs se non esiste
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-
     for cluster_mcs in clusters_mcs:
-        mcs = cluster_mcs.mcs_mol
-        id = cluster_mcs.cluster_id
-        cluster_size = cluster_mcs.GetSize()
-        legend = f"MCS Cluster {id} (size {cluster_size})"
-        for clustered_mol in cluster_mcs.mols_in_cluster:
-            legend += f"\n- {clustered_mol.GetName()}"
-
-        DrawMol(mcs, out_dir, name_prefix=f"cluster_{id}_mcs", legend=legend)
+        DrawClusterMCS(cluster_mcs, out_dir=out_dir)
 
 
 def DrawMols(mols, out_dir: str = "out/mols"):
