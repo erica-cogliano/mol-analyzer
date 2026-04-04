@@ -9,9 +9,9 @@ from rdkit import Chem
 from helper import *
 import mcs_search
 
-CLUSTER_COUNT = 24
+CLUSTER_COUNT = 32
 RANDOM_STATE = 10
-INTERESTING_CLUSTER_IDS = [1, 4, 5, 21, 22]
+INTERESTING_CLUSTER_IDS = [7, 22]
 
 
 def LoadKOvarianMolecules() -> list[Chem.Mol]:
@@ -69,7 +69,11 @@ def main():
     PrintBiggestMol(kovarian_mols)
 
     k_ovarian_cluster_mcss: list[ClusterMCS] = GetClustersMCSFromMols(
-        kovarian_mols, cluster_count=CLUSTER_COUNT, random_state=RANDOM_STATE
+        kovarian_mols,
+        cluster_count=CLUSTER_COUNT,
+        random_state=RANDOM_STATE,
+        mapping_strategy=MappingStrategy.MDS,
+        cluster_strategy=ClusteringStrategy.KMEANS,
     )
 
     DrawClustersMCS(k_ovarian_cluster_mcss)
@@ -86,8 +90,6 @@ def main():
         logger.info(
             f"Trovate {len(mols_with_mcs)} molecole che contengono l'MCS del cluster {cluster_mcs.cluster_id}"
         )
-        for mol in mols_with_mcs:
-            logger.info(f"- {GetMolName(mol)}")
 
         mcs_search.ProcessSimilarityWithMols(
             cluster_mcs, kovarian_mols, "kovarian_mols"

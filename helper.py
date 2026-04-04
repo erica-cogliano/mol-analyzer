@@ -1,11 +1,17 @@
+from enum import Enum
 import io
 import os
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 import pubchempy as pcp
 import pandas as pd
 import numpy as np
 from sammon.sammon import sammon
+from sklearn.manifold import MDS
+from sklearn.cluster import AgglomerativeClustering
 from tqdm import tqdm
-
+import matplotlib.pyplot as plt
+import umap
+from PIL import Image
 
 from loguru import logger
 
@@ -16,11 +22,13 @@ from rdkit.Chem import (
     rdFMCS,
     rdFingerprintGenerator,
     Draw,
+    rdDepictor,
     SDMolSupplier,
     DataStructs,
     MolFromSmarts,
     FastFindRings,
 )
+from rdkit.Chem.Draw import rdMolDraw2D
 from rdkit.ML.Cluster import Butina
 
 from sklearn.cluster import KMeans
@@ -37,11 +45,18 @@ def InitLogger():
     )  # Aggiunge un nuovo logger con il livello specificato
 
 
-def LoadMolecules(file_path, fallback_path, include_substances=True) -> SDMolSupplier:
+def LoadMolecules(file_path, fallback_path, include_substances=False) -> SDMolSupplier:
     """
     Questa funzione carica le molecole da un file SDF in `file_path`. Se il file non esiste,
     scarica i dati da PubChem usando i nomi dei farmaci trovati in file csv in `fallback_path`
     e salva le MOL nel file SDF in `file_path` per usi futuri.
+
+    - `file_path`: percorso del file SDF da cui caricare le molecole
+    - `fallback_path`: percorso del file CSV da cui caricare i nomi dei farmaci se il file SDF non esiste
+    - `include_substances`: se True, include anche le sostanze (substance) nella ricerca su PubChem,
+       altrimenti cerca solo nei composti (compound). Nota che includere le sostanze può aumentare
+       significativamente il tempo di ricerca e non garantisce risultati aggiuntivi,
+       quindi è disabilitato per default.
     """
     compounds_sdf_file_name = file_path
     if not os.path.exists(compounds_sdf_file_name):
@@ -88,27 +103,30 @@ def FindMolByName(name: str) -> Mol:
     Se la ricerca fallisce o non viene trovato nulla, restituisce None.
     """
     logger.debug(f"Cercando la molecola '{name}' su PubChem")
+    namespace = PubChemNamespace.CID
+    domain = PubChemDomain.COMPOUND
     try:
-        cids = pcp.get_cids(name, namespace="name")
+        ids = pcp.get_cids(name, namespace="name")
     except Exception as e:
         logger.error(f"Connessione fallita per '{name}': {e}")
         return None
-    if cids is None or len(cids) == 0:
-        logger.warning(f"Nessun CID trovato per '{name}'")
-        cids = FindCidsBySubstanceName(name)
+    if ids is None or len(ids) == 0:
+        logger.warning(f"Nessun ID trovato per '{name}'")
+        namespace = PubChemNamespace.SID
+        domain = PubChemDomain.SUBSTANCE
+        ids = FindSidsBySubstanceName(name)
 
-    # una volta ottenuti i CID, possiamo ottenere la migliore molecola associata a quei CID
-    return GetBestMolFromCids(cids, name)
+    # una volta ottenuti gli ID, possiamo ottenere la migliore molecola associata a quegli ID
+    return GetBestMol(ids, name, namespace=namespace, domain=domain)
 
 
-def FindCidsBySubstanceName(name: str) -> Mol:
+def FindSidsBySubstanceName(name: str) -> list[int]:
     """
-    Questa funzione cerca una molecola su PubChem usando il nome come sostanza e restituisce una lista di CID associati a quella sostanza.
+    Questa funzione cerca una molecola su PubChem usando il nome come sostanza e restituisce una lista di SID associati a quella sostanza.
     Se la ricerca fallisce o non viene trovato nulla, restituisce None.
     """
     logger.debug(f"Cercando la molecola '{name}' su PubChem come sostanza")
     try:
-        # Cerca le substance ID (SID) per il nome dato.
         sids = pcp.get_sids(name, namespace="name", domain="substance")
     except Exception as e:
         logger.error(f"Connessione fallita per '{name}' come sostanza: {e}")
@@ -117,6 +135,15 @@ def FindCidsBySubstanceName(name: str) -> Mol:
         logger.warning(f"Nessuna substance trovata per '{name}'")
         return None
 
+    return sids
+
+
+def FindCidsBySubstanceName(name: str) -> Mol:
+    """
+    Questa funzione cerca una molecola su PubChem usando il nome come sostanza e restituisce una lista di CID associati a quella sostanza.
+    Se la ricerca fallisce o non viene trovato nulla, restituisce None.
+    """
+    sids = FindSidsBySubstanceName(name)
     # Le substance potrebbero essere composte da piu' compound, quindi
     # prendiamo tutti i SID trovati e cerchiamo i CID a loro associati.
     return FindCidsBySids(sids, name)
@@ -187,19 +214,34 @@ def FindMolByNameWithSynonyms(name: str, include_substances=True) -> Mol:
     return None
 
 
-def GetBestMolFromCids(cids, name: str) -> Mol:
+class PubChemNamespace(Enum):
+    CID = "cid"
+    SID = "sid"
+
+
+class PubChemDomain(Enum):
+    COMPOUND = "compound"
+    SUBSTANCE = "substance"
+
+
+def GetBestMol(
+    ids,
+    name: str,
+    namespace: PubChemNamespace.COMPOUND,
+    domain: PubChemDomain.COMPOUND,
+) -> Mol:
     """
     Questa funzione prende una lista di compound ID e restituisce la molecola con il maggior numero di atomi.
     Inoltre associa il nome alla molecola usando la proprietà `_Name`.
     Se il testo SDF è vuoto o non valido, restituisce None.
     """
-    if cids is None or len(cids) == 0:
-        logger.warning(f"Nessun CID valido trovato per '{name}'")
+    if ids is None or len(ids) == 0:
+        logger.warning(f"Nessun ID valido trovato per '{name}'")
         return None
 
-    # Otteniamo il testo SDF per i CID dati
+    # Otteniamo il testo SDF per gli ID dati
     try:
-        sdf_text = pcp.get_sdf(cids)
+        sdf_text = pcp.get_sdf(ids, namespace=namespace.value, domain=domain.value)
     except Exception as e:
         logger.error(f"Errore durante il recupero dello SDF per '{name}': {e}")
         return None
@@ -229,14 +271,15 @@ def GetBestMolFromSupplier(supplier: ForwardSDMolSupplier) -> Mol:
     """
     Questa funzione prende un ForwardSDMolSupplier e restituisce la molecola con il maggior numero di atomi.
     """
-    ATOM_COUNT_LIMIT = 100  # Imposta un limite massimo di atomi per evitare di processare molecole troppo grandi
+    ATOM_COUNT_MAX = 100  # Imposta un limite massimo di atomi per evitare di processare molecole troppo grandi
+    ATOM_COUNT_MIN = 2  # Imposta un limite minimo di atomi per evitare di considerare molecole troppo semplici o non valide
 
     best_mol = None
     max_atoms = 0
     for mol in supplier:
         if mol is not None:
             num_atoms = mol.GetNumAtoms()
-            if num_atoms > max_atoms and num_atoms <= ATOM_COUNT_LIMIT:
+            if num_atoms > max_atoms and num_atoms <= ATOM_COUNT_MAX and num_atoms >= ATOM_COUNT_MIN:
                 max_atoms = num_atoms
                 best_mol = mol
     return best_mol
@@ -359,13 +402,14 @@ def GetDistanceMatrixFromFingerprints(fingerprints):
 #  - distance_matrix: matrice delle distanze in formato adatto a Butina.ClusterData
 #  - n: Numero di righe e colonne della matrice
 # output: clusters
-def GetClustersFromDistanceMatrix(distance_matrix, n, dist_tresh):
+def GetButinaClustersFromDistanceMatrix(distance_matrix, n, dist_tresh):
     return Butina.ClusterData(
         distance_matrix, n, distThresh=dist_tresh, isDistData=True
     )
 
 
-# Questa funzione espande una distance matrix da un formato Butina ad un formato adatto a MDS e KMeans
+# Questa funzione espande una distance matrix da un formato Butina ad un formato pieno NxN,
+# adatto ai metodi che lavorano su matrici di distanza complete.
 # input:
 #  - compressed_distance_matrix: distance matrix adatto a Butina.ClusterData
 #  - n: Numero di righe e colonne della matrice
@@ -391,43 +435,136 @@ def ExpandDistanceMatrix(compressed_distance_matrix, n):
     return expanded_matrix
 
 
-def GetKMeansClustersFromDistanceMatrix(
-    mols: list[Mol], distance_matrix, cluster_count, random_state
+def CompressDistanceMatrix(expanded_distance_matrix):
+    """
+    Converte una matrice delle distanze NxN nella forma compressa richiesta da Butina.
+    """
+    compressed_matrix = []
+    n = len(expanded_distance_matrix)
+
+    for j in range(1, n):
+        for i in range(j):
+            compressed_matrix.append(expanded_distance_matrix[i][j])
+
+    return compressed_matrix
+
+
+class MappingStrategy(Enum):
+    SAMMON = "sammon"
+    MDS = "mds"
+    UMAP = "umap"
+
+
+class ClusteringStrategy(Enum):
+    KMEANS = "kmeans"
+    BUTINA = "butina"
+    AGGLOMERATIVE = "agglomerative"
+
+
+def GetClustersFromDistanceMatrix(
+    mols: list[Mol],
+    distance_matrix,
+    cluster_count,
+    random_state,
+    mapping_strategy: MappingStrategy = MappingStrategy.SAMMON,
+    cluster_strategy: ClusteringStrategy = ClusteringStrategy.KMEANS,
 ) -> list[ClusteredMol]:
     """
-    Definiamo una funzione che genera i cluster con sammon+KMeans a partire da una matrice delle distanze
+    Genera coordinate 2D e cluster a partire da una matrice delle distanze.
 
     input:
       - mols: lista di molecole su cui vogliamo generare i cluster
-      - distance_matrix: matrice delle distanze in formato adatto a sammon+KMeans
+      - distance_matrix: matrice delle distanze completa NxN
       - cluster_count: numero di cluster da generare
 
     output:
-      - Lista di ClusteredMol, che contiene le molecole clusterizzate con KMeans e le loro coordinate 2D
+      - Lista di ClusteredMol, che contiene le molecole clusterizzate e le loro coordinate 2D
     """
     clustered_mols = []
+    coords_2d = []
 
-    logger.debug(
-        "Eseguendo Sammon mapping per ridurre la matrice di distanze a 2 dimensioni"
-    )
-    # Sammon si aspetta un array numpy, quindi convertiamo la matrice di distanze
+    # Creiamo un array numpy dalla matrice di distanze
     np_distance_matrix = np.array(distance_matrix)
-    sammon_result = sammon(np_distance_matrix)
-    fprints_2d = sammon_result[0]
 
-    logger.debug("Eseguendo KMeans per generare {} cluster".format(cluster_count))
-    km = KMeans(cluster_count, random_state=random_state)
-    # KMeans fit predict restituisce un vettore di cluster a cui ogni molecola appartiene,
-    # ad esempio [0, 0, 1, 1, 2] significa che le prime due molecole appartengono al cluster 0,
-    # le successive due al cluster 1 e l'ultima al cluster 2
-    clusters = km.fit_predict(fprints_2d)
+    if mapping_strategy == MappingStrategy.SAMMON:
+        logger.info(
+            "Eseguendo Sammon mapping per ridurre la matrice di distanze a 2 dimensioni"
+        )
+        np.random.seed(random_state)
+        sammon_result = sammon(np_distance_matrix, inputdist="distance", init="")
+        coords_2d = sammon_result[0]
+    elif mapping_strategy == MappingStrategy.MDS:
+        logger.info("Eseguendo MDS per ridurre la matrice di distanze a 2 dimensioni")
+        mds = MDS(
+            n_components=2,
+            metric="precomputed",
+            random_state=random_state,
+            normalized_stress="auto",
+            n_init=4,
+            init="random",
+        )
+        coords_2d = mds.fit_transform(np_distance_matrix)
+    elif mapping_strategy == MappingStrategy.UMAP:
+        logger.info("Eseguendo UMAP per ridurre la matrice di distanze a 2 dimensioni")
+        reducer = umap.UMAP(
+            n_components=2, metric="precomputed", random_state=random_state
+        )
+        coords_2d = reducer.fit_transform(np_distance_matrix)
+    else:
+        raise ValueError(
+            f"Strategia di riduzione della dimensionalità '{mapping_strategy}' non supportata"
+        )
+
+    clusters = []
+    if cluster_strategy == ClusteringStrategy.KMEANS:
+        logger.info("Eseguendo KMeans per generare {} cluster".format(cluster_count))
+        km = KMeans(cluster_count, random_state=random_state)
+        # KMeans fit predict restituisce un vettore di cluster a cui ogni molecola appartiene,
+        # ad esempio [0, 0, 1, 1, 2] significa che le prime due molecole appartengono al cluster 0,
+        # le successive due al cluster 1 e l'ultima al cluster 2
+        clusters = km.fit_predict(coords_2d)
+    elif cluster_strategy == ClusteringStrategy.BUTINA:
+        logger.info("Eseguendo Butina per generare {} cluster".format(cluster_count))
+        logger.warning(
+            "Questa strategia ignora il numero di cluster specificato e utilizza una threshold di distanza per generare i cluster"
+        )
+        # Butina utilizza una threshold di distanza per generare i cluster, quindi non
+        # possiamo specificare direttamente il numero di cluster che vogliamo,
+        # ma possiamo giocare con la threshold per cercare di ottenere un numero di cluster simile a quello desiderato.
+        dist_tresh = 0.85
+        compressed_distance_matrix = CompressDistanceMatrix(distance_matrix)
+        clusters = Butina.ClusterData(
+            compressed_distance_matrix, len(mols), dist_tresh, isDistData=True
+        )
+        logger.info(
+            f"Butina ha generato {len(clusters)} cluster con threshold {dist_tresh}"
+        )
+        # Butina restituisce una tupla di tuple, dove ogni tupla interna contiene gli indici delle molecole che appartengono a quel cluster.
+        # Convertiamo la tupla di tuple in un vettore di cluster a cui ogni molecola appartiene
+        cluster_vector = [0] * len(mols)
+        for cluster_id, cluster in enumerate(clusters):
+            for mol_index in cluster:
+                cluster_vector[mol_index] = cluster_id
+        clusters = cluster_vector
+    elif cluster_strategy == ClusteringStrategy.AGGLOMERATIVE:
+        logger.info(
+            "Eseguendo Agglomerative Clustering per generare {} cluster".format(
+                cluster_count
+            )
+        )
+        agg = AgglomerativeClustering(
+            n_clusters=cluster_count, metric="precomputed", linkage="average"
+        )
+        clusters = agg.fit_predict(np_distance_matrix)
+    else:
+        raise ValueError(f"Strategia di clustering '{cluster_strategy}' non supportata")
 
     # Ora abbiamo un vettore di cluster e un vettore di coordinate 2D per ogni molecola,
     # vogliamo combinarli in un unico contenitore che ci permetta di accedere facilmente a tutte queste informazioni.
     for i, (mol, cluster_id) in enumerate(zip(mols, clusters)):
-        x, y = fprints_2d[i]
+        x, y = coords_2d[i]
         clustered_mols.append(
-            ClusteredMol(mol=mol, cluster_id=int(cluster_id), x=x, y=y)
+            ClusteredMol(mol=mol, cluster_id=int(cluster_id), x=float(x), y=float(y))
         )
 
     # Verifichiamno che clustered_mols e mols siano compatibili
@@ -457,12 +594,12 @@ class ClusteredMol:
 
     @property
     def x(self) -> float:
-        """x e' la coordinata x della molecola nello spazio 2D ottenuto con Sammon mapping"""
+        """x e' la coordinata x della molecola nello spazio 2D dell'embedding"""
         return self._x
 
     @property
     def y(self) -> float:
-        """y e' la coordinata y della molecola nello spazio 2D ottenuto con Sammon mapping"""
+        """y e' la coordinata y della molecola nello spazio 2D dell'embedding"""
         return self._y
 
     def __init__(self, mol, cluster_id, x, y):
@@ -509,6 +646,45 @@ class ClusterMCS:
         return len(self._mols_in_cluster)
 
 
+def RenderColoredMolImage(
+    mol: Mol, color, size: tuple[int, int] = (220, 220)
+) -> np.ndarray:
+    """
+    Disegna la molecola come immagine RGBA con sfondo trasparente.
+    Il colore viene applicato alla molecola stessa, non al frame.
+    """
+    mol_to_draw = Draw.PrepareMolForDrawing(mol)
+    drawer = rdMolDraw2D.MolDraw2DCairo(size[0], size[1])
+    options = drawer.drawOptions()
+
+    options.clearBackground = False
+    options.useBWAtomPalette()
+    options.setSymbolColour(tuple(color[:3]))
+    options.setLegendColour(tuple(color[:3]))
+    options.fillHighlights = False
+    options.continuousHighlight = False
+
+    atom_ids = list(range(mol_to_draw.GetNumAtoms()))
+    bond_ids = list(range(mol_to_draw.GetNumBonds()))
+    atom_colors = {atom_id: tuple(color[:3]) for atom_id in atom_ids}
+    bond_colors = {bond_id: tuple(color[:3]) for bond_id in bond_ids}
+    atom_radii = {atom_id: 0.01 for atom_id in atom_ids}
+    drawer.DrawMolecule(
+        mol_to_draw,
+        atom_ids,
+        bond_ids,
+        atom_colors,
+        bond_colors,
+        atom_radii,
+        -1,
+        "",
+    )
+    drawer.FinishDrawing()
+
+    png_bytes = drawer.GetDrawingText()
+    return np.asarray(Image.open(io.BytesIO(png_bytes)).convert("RGBA"))
+
+
 def GetClusterCount(clustered_mols: list[ClusteredMol]) -> int:
     """Funzione che calcola il numero di cluster presenti in una lista di ClusteredMol"""
     cluster_ids = set([cm.cluster_id for cm in clustered_mols])
@@ -522,7 +698,7 @@ def GetClustersMCS(
     Funzione che genera MCSs a partire dai clusters
 
     input:
-     - clustered_mols: una lista di ClusteredMol, che contiene le molecole clusterizzate con KMeans e le loro coordinate 2D
+     - clustered_mols: una lista di ClusteredMol, che contiene le molecole clusterizzate e le loro coordinate 2D
      - mols: contenitore di molecole su cui vogliamo calcolare gli MCS, che puo' essere la lista originale di molecole o
         la lista dei murcko scaffold generici, a seconda di cosa vogliamo analizzare
 
@@ -600,11 +776,74 @@ def DrawClusterMCS(cluster_mcs: ClusterMCS, out_dir: str = "out/mcs"):
     DrawMol(mcs, out_dir, name_prefix=f"cluster_{id}_mcs", legend=legend)
 
 
+def PlotClustersMCS(clusters_mcs: list[ClusterMCS], out_dir: str = "out/mcs"):
+    """
+    Funzione che disegna un grafico di tutte le molecole che appartengono a quel cluster,
+    usando le coordinate 2D dell'embedding e colorando le molecole in base al cluster.
+    Il grafico viene salvato in `out_dir` come file PNG con nome clusters_mcs.png
+    """
+
+    # Se la cartella out/mcs non esiste, creala
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+    cmap = plt.get_cmap("tab20")
+    xs = []
+    ys = []
+
+    for cluster_mcs in clusters_mcs:
+        for clustered_mol in cluster_mcs.mols_in_cluster:
+            color = cmap(clustered_mol.cluster_id % cmap.N)
+
+            mol_img = RenderColoredMolImage(clustered_mol.mol, color, size=(180, 180))
+            image_box = OffsetImage(mol_img, zoom=0.25)
+            ab = AnnotationBbox(
+                image_box,
+                (clustered_mol.x, clustered_mol.y),
+                frameon=False,
+                pad=0.0,
+                zorder=2,
+            )
+            ax.add_artist(ab)
+
+            xs.append(clustered_mol.x)
+            ys.append(clustered_mol.y)
+
+            ax.text(
+                clustered_mol.x,
+                clustered_mol.y,
+                clustered_mol.GetName(),
+                fontsize=8,
+                ha="center",
+                va="bottom",
+                color=color,
+                zorder=3,
+            )
+
+    x_margin = max((max(xs) - min(xs)) * 0.1, 0.25) if xs else 1.0
+    y_margin = max((max(ys) - min(ys)) * 0.1, 0.25) if ys else 1.0
+
+    if xs and ys:
+        ax.set_xlim(min(xs) - x_margin, max(xs) + x_margin)
+        ax.set_ylim(min(ys) - y_margin, max(ys) + y_margin)
+
+    ax.set_title("Molecole nei cluster MCS")
+    ax.grid(True, alpha=0.3)
+    plt.savefig(f"{out_dir}/clusters_mcs.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+
 def DrawClustersMCS(clusters_mcs: list[ClusterMCS], out_dir: str = "out/mcs"):
     """
-    Funzione che disegna gli MCS di ogni cluster e li salva in out/mcs come file PNG.
+    Funzione che disegna gli MCS di ogni cluster e li salva nella cartella specificata come file PNG.
     Il nome del file e' cluster_{id}_mcs.png, dove {id} e' l'id del cluster.
-    input: clusters_mcs - risultato della funzione GetClustersMCS
+
+    Inoltre, questa funzione disegna un grafico di tutte le molecole che appartengono a quel cluster,
+    usando le coordinate 2D dell'embedding e colorando le molecole in base al cluster.
+
+    - input: `clusters_mcs` - risultato della funzione GetClustersMCS
+    - input: `out_dir` - percorso della cartella in cui salvare i file PNG
     """
     # Cancella la cartella out/mcs se esiste per eliminare i vecchi risultati
     if os.path.exists(out_dir):
@@ -614,20 +853,57 @@ def DrawClustersMCS(clusters_mcs: list[ClusterMCS], out_dir: str = "out/mcs"):
     for cluster_mcs in clusters_mcs:
         DrawClusterMCS(cluster_mcs, out_dir=out_dir)
 
+    PlotClustersMCS(clusters_mcs, out_dir=out_dir)
+
+
+def DebugMol(mol: Mol):
+    """
+    Funzione di debug che stampa informazioni utili sulla molecola, come il nome, il numero di atomi e di legami.
+    """
+    name = GetMolName(mol)
+    num_atoms = mol.GetNumAtoms()
+    num_bonds = mol.GetNumBonds()
+    logger.debug(f"Molecola '{name}': {num_atoms} atomi, {num_bonds} legami")
+
 
 def DrawMols(mols, out_dir: str = "out/mols"):
     """
     Disegna le molecole e salva il risultato in file PNG nella cartella `out_dir`
     """
     for mol in tqdm(mols, desc="Disegnando le molecole"):
+        DebugMol(mol)
         DrawMol(mol, out_dir=out_dir)
+
 
 
 def DrawMol(
     mol, out_dir: str = "out/mols", name_prefix: str = "mol", legend: str = None
 ):
     name = GetMolName(mol)
-    img = Draw.MolToImage(mol, size=(600, 600), legend=legend if legend else name)
+
+    if mol is None or mol.GetNumAtoms() == 0:
+        logger.warning(f"Molecola '{name}' nulla o senza atomi, salto il disegno")
+        return
+
+    def _draw(mol_to_draw):
+        return Draw.MolToImage(
+            mol_to_draw,
+            size=(600, 600),
+            legend=legend if legend else name,
+        )
+
+    try:
+        img = _draw(mol)
+    except Exception as e:
+        logger.warning(
+            f"Prima conversione immagine fallita per '{name}': {e}, provo a calcolare coordinate 2D e riprovo"
+        )
+        try:
+            rdDepictor.Compute2DCoords(mol)
+            img = _draw(mol)
+        except Exception as e2:
+            logger.error(f"Errore durante il disegno della molecola '{name}' dopo Compute2DCoords: {e2}")
+            return
 
     # Se la cartella out non esiste, creala
     if not os.path.exists(out_dir):
@@ -655,7 +931,12 @@ def MakeScaffoldsGeneric(scaffolds):
 
 
 def GetClustersMCSFromMols(
-    mols: list[Mol], use_scaffolds: bool = True, cluster_count=20, random_state=42
+    mols: list[Mol],
+    use_scaffolds: bool = True,
+    cluster_count=20,
+    random_state=42,
+    mapping_strategy: MappingStrategy = MappingStrategy.SAMMON,
+    cluster_strategy: ClusteringStrategy = ClusteringStrategy.KMEANS,
 ) -> list[ClusterMCS]:
     """Funzione che ottiene i cluster e i relativi MCS a partire da una lista di molecole
 
@@ -665,7 +946,7 @@ def GetClustersMCSFromMols(
     La funzione esegue i seguenti passaggi:
     1. Ottiene i fingerprint per ogni molecola
     2. Ottiene la matrice di distanze a partire dai fingerprint
-    3. Utilizza KMeans per ottenere i cluster a partire dalla matrice di distanze
+    3. Utilizza la strategia di clustering selezionata per ottenere i cluster a partire dalla matrice di distanze
     4. Per ogni cluster, ottiene l'MCS a partire dalle molecole che appartengono a quel cluster, e salva le informazioni in un oggetto ClusterMCS
     """
 
@@ -678,14 +959,14 @@ def GetClustersMCSFromMols(
         compressed_distance_matrix, len(fingerprints)
     )
 
-    clustered_mols = GetKMeansClustersFromDistanceMatrix(
-        mols, expended_distance_matrix, cluster_count, random_state=random_state
+    clustered_mols = GetClustersFromDistanceMatrix(
+        mols,
+        expended_distance_matrix,
+        cluster_count,
+        random_state=random_state,
+        mapping_strategy=mapping_strategy,
+        cluster_strategy=cluster_strategy,
     )
-
-    for clustered_mol in clustered_mols:
-        logger.info(
-            "Cluster {}: {}".format(clustered_mol.cluster_id, clustered_mol.GetName())
-        )
 
     if use_scaffolds:
         # L'MCS trova la più grande sottostruttura comune tra due o più molecole.

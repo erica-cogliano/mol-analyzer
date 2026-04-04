@@ -6,3 +6,4 @@ sammon-mapping
 scikit-learn
 tqdm
 matplotlib
+umap-learn
