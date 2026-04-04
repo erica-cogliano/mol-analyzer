@@ -450,12 +450,24 @@ def CompressDistanceMatrix(expanded_distance_matrix):
 
 
 class MappingStrategy(Enum):
+    """
+    Strategie di riduzione della dimensionalità per generare coordinate 2D a partire da una matrice di distanze.
+        - SAMMON: utilizza il Sammon mapping, che è una tecnica di riduzione della dimensionalità non lineare che cerca di preservare le piccole distanze.
+        - MDS: utilizza il Multiple Dimensional Scaling, che è la tecnica standard di riduzione della dimensionalità lineare.
+        - UMAP: utilizza il Uniform Manifold Approximation and Projection, che è un'ottima tecnica per la visualizzazione di cluster.
+    """
     SAMMON = "sammon"
     MDS = "mds"
     UMAP = "umap"
 
 
 class ClusteringStrategy(Enum):
+    """
+    Strategie di clustering per generare cluster a partire da coordinate 2D o da una matrice di distanze.
+        - KMEANS: utilizza il clustering KMeans, che è la tecnica standard di clustering.
+        - BUTINA: utilizza il clustering Butina, che è una tecnica di clustering basata sulla distanza.
+        - AGGLOMERATIVE: utilizza il clustering agglomerativo, che è una tecnica di clustering gerarchico.
+    """
     KMEANS = "kmeans"
     BUTINA = "butina"
     AGGLOMERATIVE = "agglomerative"

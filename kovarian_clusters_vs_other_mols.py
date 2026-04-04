@@ -1,7 +1,6 @@
 #obiettivo: confrontare gli scaffold dei cluster con le molecole del dataset iniziale (con farmaci solo approvati e senza la classe k ovarico),
 #per vedere se ci sono molecole che contengono quegli scaffold e se sono simili a quelli scaffold
 
-import csv
 import os
 import kovarian_clusters
 from filtra_ttd import *
@@ -40,7 +39,8 @@ if not os.path.exists(images_out_dir):
 logger.info(f"Caricate {len(other_mols)} molecole da '{APPROVED_NON_K_OVARIAN_SDF_FILE_PATH}'")
 
 
-# Recuperare gli MCS dei cluster ottenuti in `murckoscaffold.py` e confrontarli con le molecole caricate da `approved_non_k_ovarian_drugs.sdf`
+# Recuperare gli MCS dei cluster ottenuti in `kovarian_clusters.py`
+# e confrontarli con le molecole caricate da `approved_non_k_ovarian_drugs.sdf`
 kovarian_interseting_clusters: list[ClusterMCS] = kovarian_clusters.GetInterestingClusters()
 
 for interesting_cluster_mcs in kovarian_interseting_clusters:

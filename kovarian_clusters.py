@@ -11,7 +11,7 @@ import mcs_search
 
 CLUSTER_COUNT = 32
 RANDOM_STATE = 10
-INTERESTING_CLUSTER_IDS = [7, 22]
+INTERESTING_CLUSTER_IDS = [18, 20, 21, 27, 30]
 
 
 def LoadKOvarianMolecules() -> list[Chem.Mol]:
@@ -23,6 +23,9 @@ def LoadKOvarianMolecules() -> list[Chem.Mol]:
     kovarian_mols = LoadMolecules(
         file_path="data/compounds.sdf",
         fallback_path="data/ttd_drug_disease_ovarian_by_drug.csv",
+        # Includiamo le sostanze per aumentare le possibilità di trovare i farmaci,
+        # anche se questo aumenta considerevolmente il tempo di ricerca
+        include_substances=True,
     )
     logger.info("Caricate {} molecole".format(len(kovarian_mols)))
 
@@ -33,6 +36,21 @@ def LoadKOvarianMolecules() -> list[Chem.Mol]:
     return kovarian_mols
 
 
+def GetClustersMCSFromKOvarianMols(kovarian_mols: list[Chem.Mol]) -> list[ClusterMCS]:
+    """
+    Ottiene gli MCS dei cluster a partire dalle molecole del k ovarico.
+    Restituisce una lista di ClusterMCS, che contengono l'MCS di ogni cluster e altre informazioni utili.
+    """
+    return GetClustersMCSFromMols(
+        kovarian_mols,
+        use_scaffolds=True,
+        cluster_count=CLUSTER_COUNT,
+        random_state=RANDOM_STATE,
+        mapping_strategy=MappingStrategy.MDS,
+        cluster_strategy=ClusteringStrategy.KMEANS,
+    )
+
+
 def GetInterestingClusters() -> list[ClusterMCS]:
     """
     Restituisce la lista di ClusterMCS di piccole molecole associate al k ovarico
@@ -41,9 +59,7 @@ def GetInterestingClusters() -> list[ClusterMCS]:
     kovarian_mols = LoadKOvarianMolecules()
 
     # Ottieni gli MCS dei cluster a partire dalle molecole filtrate
-    k_ovarian_cluster_mcss: list[ClusterMCS] = GetClustersMCSFromMols(
-        kovarian_mols, cluster_count=CLUSTER_COUNT, random_state=RANDOM_STATE
-    )
+    k_ovarian_cluster_mcss: list[ClusterMCS] = GetClustersMCSFromKOvarianMols(kovarian_mols)
 
     # Seleziona i cluster piu' interessanti
     return mcs_search.GetInterestingClusterMCS(
@@ -68,13 +84,7 @@ def main():
     DrawMols(kovarian_mols)
     PrintBiggestMol(kovarian_mols)
 
-    k_ovarian_cluster_mcss: list[ClusterMCS] = GetClustersMCSFromMols(
-        kovarian_mols,
-        cluster_count=CLUSTER_COUNT,
-        random_state=RANDOM_STATE,
-        mapping_strategy=MappingStrategy.MDS,
-        cluster_strategy=ClusteringStrategy.KMEANS,
-    )
+    k_ovarian_cluster_mcss: list[ClusterMCS] = GetClustersMCSFromKOvarianMols(kovarian_mols)
 
     DrawClustersMCS(k_ovarian_cluster_mcss)
 
