@@ -48,6 +48,7 @@ def GetClustersMCSFromKOvarianMols(kovarian_mols: list[Chem.Mol]) -> list[Cluste
         random_state=RANDOM_STATE,
         mapping_strategy=MappingStrategy.MDS,
         cluster_strategy=ClusteringStrategy.KMEANS,
+        fingerprint_strategy=FingerprintStrategy.MORGAN,
     )
 
 

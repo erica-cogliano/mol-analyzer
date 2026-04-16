@@ -330,13 +330,23 @@ def PrintBiggestMol(mols):
         logger.warning("Nessuna molecola valida trovata")
 
 
+class FingerprintStrategy(Enum):
+    MORGAN = "morgan"
+    RDKIT = "rdkit"
+
+
 # Definiamo una funzione che ci trasforma le molecole di un SDF in un vettore di fingerprint
 # @input: SDMol
 # @output: Vettore di fingerprint
-def GetFingerprintFromSDMol(mols: SDMolSupplier):
-    gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+def GetFingerprintFromSDMol(mols: SDMolSupplier, strategy: FingerprintStrategy = FingerprintStrategy.MORGAN) -> list:
+    if strategy == FingerprintStrategy.MORGAN:
+        gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+        msg = "Generando fingerprint Morgan"
+    elif strategy == FingerprintStrategy.RDKIT:
+        gen = rdFingerprintGenerator.GetRDKitFPGenerator()
+        msg = "Generando fingerprint RDKit"
     fps = []
-    for mol in tqdm(mols, "Generando fingerprint"):
+    for mol in tqdm(mols, msg):
         fp = gen.GetFingerprint(mol)
         fps.append(fp)
     return fps
@@ -949,6 +959,7 @@ def GetClustersMCSFromMols(
     random_state=42,
     mapping_strategy: MappingStrategy = MappingStrategy.SAMMON,
     cluster_strategy: ClusteringStrategy = ClusteringStrategy.KMEANS,
+    fingerprint_strategy: FingerprintStrategy = FingerprintStrategy.MORGAN,
 ) -> list[ClusterMCS]:
     """Funzione che ottiene i cluster e i relativi MCS a partire da una lista di molecole
 
@@ -963,7 +974,7 @@ def GetClustersMCSFromMols(
     """
 
     # Otteniamo le fingerprint per ogni molecola
-    fingerprints = GetFingerprintFromSDMol(mols)
+    fingerprints = GetFingerprintFromSDMol(mols, fingerprint_strategy)
     # Otteniamo la matrice di distanze
     compressed_distance_matrix = GetDistanceMatrixFromFingerprints(fingerprints)
 
