@@ -11,7 +11,7 @@ import mcs_search
 
 CLUSTER_COUNT = 32
 RANDOM_STATE = 10
-INTERESTING_CLUSTER_IDS = [18, 20, 21, 27, 30]
+INTERESTING_CLUSTER_IDS = [18, 21]
 
 
 def LoadKOvarianMolecules() -> list[Chem.Mol]:
