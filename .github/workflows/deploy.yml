@@ -24,6 +24,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - run: python gen_drugs.py
       - run: mkdocs build --strict     # output in ./site
       - uses: actions/upload-pages-artifact@v3
         with:

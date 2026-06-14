@@ -1,3 +1,5 @@
 site_name: Mol Analyzer
 theme:
   name: material
+nav:
+  - Drugs: drugs.md
