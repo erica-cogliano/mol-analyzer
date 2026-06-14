@@ -888,7 +888,7 @@ def DebugMol(mol: Mol):
     logger.debug(f"Molecola '{name}': {num_atoms} atomi, {num_bonds} legami")
 
 
-def DrawMols(mols, out_dir: str = "out/mols"):
+def DrawMols(mols, out_dir: str = "docs/drugs/images"):
     """
     Disegna le molecole e salva il risultato in file PNG nella cartella `out_dir`
     """
@@ -899,7 +899,7 @@ def DrawMols(mols, out_dir: str = "out/mols"):
 
 
 def DrawMol(
-    mol, out_dir: str = "out/mols", name_prefix: str = "mol", legend: str = None
+    mol, out_dir: str = "docs/drugs/images", legend: str = None
 ):
     name = GetMolName(mol)
 
@@ -933,9 +933,18 @@ def DrawMol(
 
     # Name potrebbe avere il carattere di separatore di cartella al suo interno `/`
     # Quindi lo dobbiamo safinicare se vogliamo usarlo come nome di file
-    safe_name = name.replace("/", "_")
+    safe_name = GetSafeName(name)
     # Salva l'immagine in out/mol_{name}.png
-    img.save(f"{out_dir}/{name_prefix}_{safe_name}.png")
+    img.save(f"{out_dir}/{safe_name}.png")
+
+
+def GetSafeName(name: str) -> str:
+    """Restituisce un nome sicuro per i file, sostituendo caratteri speciali con trattini."""
+    characters_to_replace = [" ", "/", "\\", "?", "(", ")", "[", "]"]
+    safe_name = name
+    for char in characters_to_replace:
+        safe_name = safe_name.replace(char, "-")
+    return safe_name
 
 
 # Funzione che ottiene i murcko scaffold di ogni molecola

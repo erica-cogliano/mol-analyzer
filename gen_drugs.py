@@ -9,6 +9,8 @@ def main():
 
     kovarian_mols = LoadKOvarianMolecules()
 
+    DrawMols(kovarian_mols)
+
     GenDrugsMarkdown(kovarian_mols)
 
 
@@ -19,7 +21,7 @@ def GenDrugsMarkdown(kovarian_mols):
         f.write("# Farmaci di TTD\n\n")
         f.write("Questa pagina contiene un elenco di tutti i farmaci presenti nel database TTD.\n\n")
         f.write("## Elenco dei farmaci\n\n")
-        for mol in kovarian_mols:
+        for mol in tqdm(kovarian_mols, desc="Generando markdown dei farmaci"):
             # Nome della molecola
             name = GetMolName(mol)
 
@@ -42,19 +44,14 @@ def GenMolMarkdown(mol: Chem.Mol):
     with open(drug_md_path, "w") as drug_file:
         property_names = mol.GetPropNames()
 
-        drug_file.write("## Properties")
+        drug_file.write(f"![Immagine di {name}](images/{safe_name}.png)\n")
+
+        drug_file.write("## Properties\n")
         for prop_name in property_names:
             prop_value = mol.GetProp(prop_name)
             drug_file.write(f"- **{prop_name}**: `{prop_value}`\n")
 
 
-def GetSafeName(name: str) -> str:
-    """Restituisce un nome sicuro per i file markdown, sostituendo caratteri speciali con trattini."""
-    characters_to_replace = [" ", "/", "\\", "?", "(", ")", "[", "]"]
-    safe_name = name
-    for char in characters_to_replace:
-        safe_name = safe_name.replace(char, "-")
-    return safe_name
 
 
 if __name__ == "__main__":
